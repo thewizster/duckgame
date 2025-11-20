@@ -26,7 +26,7 @@ No installation, no dependencies, no setup required - just download and play!
 ## Technical Details
 
 - **Created with**: Google Gemini 3 Pro
-- **Development**: 3 revision rounds of basic prompting
+- **Development**: 5 revision rounds of basic prompting
 - **Source**: Hand-drawn sketch
 - **Technology**: Pure HTML5 Canvas, JavaScript, and CSS
 - **Requirements**: Any modern web browser
