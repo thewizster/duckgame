@@ -12,6 +12,7 @@
             height: 100vh;
             font-family: 'Courier New', Courier, monospace;
             overflow: hidden;
+            user-select: none;
         }
         #gameContainer {
             position: relative;
@@ -66,11 +67,11 @@
     let musicInterval = null;
     let isMusicPlaying = false;
 
-    // Frequencies for C Major Scale
+    // FIXED: Added missing high notes (D5, etc) to prevent crashes
     const noteFreqs = {
         C3: 130.81, D3: 146.83, E3: 164.81, F3: 174.61, G3: 196.00, A3: 220.00, B3: 246.94,
         C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.00, A4: 440.00, B4: 493.88,
-        C5: 523.25, E5: 659.25, G5: 783.99
+        C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99
     };
 
     function initAudio() {
@@ -87,12 +88,15 @@
 
     function playTone(freq, type, duration, volume = 0.1) {
         if (!audioCtx) return;
+        if (!freq) return; // Safety check: don't crash if note is missing
+
         const osc = audioCtx.createOscillator();
         const gainNode = audioCtx.createGain();
         
-        osc.type = type; // 'square', 'triangle', 'sawtooth'
+        osc.type = type; 
         osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
         
+        // Smooth envelope to avoid clicking sounds
         gainNode.gain.setValueAtTime(volume, audioCtx.currentTime);
         gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
 
@@ -103,7 +107,6 @@
     }
 
     function sfxJump() {
-        // Slide whistle effect
         if (!audioCtx) return;
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
@@ -151,7 +154,6 @@
 
     function sfxWin() {
         if (!audioCtx) return;
-        // Classic Arpeggio
         let now = audioCtx.currentTime;
         [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
             const osc = audioCtx.createOscillator();
@@ -172,7 +174,6 @@
         isMusicPlaying = true;
         
         let noteIndex = 0;
-        // A cheery 8-bit loop
         const melody = [
             'C4', 'E4', 'G4', 'C5', 'G4', 'E4', 'C4', 'P',
             'D4', 'F4', 'A4', 'D5', 'A4', 'F4', 'D4', 'P',
@@ -181,20 +182,25 @@
         ];
 
         musicInterval = setInterval(() => {
+            // Only play music if game is actually in PLAYING state
             if (gameState !== "PLAYING") return;
             
             let note = melody[noteIndex];
-            if (note !== 'P') { // P = Pause
-                playTone(noteFreqs[note], 'square', 0.1, 0.03); // Melody
+            if (note !== 'P') { 
+                // Main Melody
+                playTone(noteFreqs[note], 'square', 0.1, 0.03); 
                 
-                // Bassline (Alternating 1-5)
+                // Bassline (Simple 1-5 pattern)
                 if (noteIndex % 4 === 0) {
-                    playTone(noteFreqs[note] / 2, 'triangle', 0.2, 0.05); // Bass
+                    // If freq exists, play bass an octave lower
+                    if (noteFreqs[note]) {
+                        playTone(noteFreqs[note] / 2, 'triangle', 0.2, 0.05);
+                    }
                 }
             }
             
             noteIndex = (noteIndex + 1) % melody.length;
-        }, 150); // Tempo
+        }, 150); // Tempo (150ms per note)
     }
 
     function stopMusic() {
@@ -448,7 +454,7 @@
             ctx.fillText("Press SPACE to Start", canvas.width/2, 230);
             ctx.font = "14px Courier New";
             ctx.fillStyle = "yellow";
-            ctx.fillText("(Turn volume up!)", canvas.width/2, 260);
+            ctx.fillText("(Sound Enabled)", canvas.width/2, 260);
         } 
         else if (gameState === "GAMEOVER") {
             ctx.fillStyle = "rgba(150,0,0,0.7)";
@@ -485,9 +491,7 @@
     }
 
     function handleBurst() {
-        // INIT AUDIO if not already
         initAudio();
-
         if (gameState !== "PLAYING") return;
         if (burstCharges > 0) {
             duck.dy = duck.burstPower;
