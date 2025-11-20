@@ -18,6 +18,7 @@ No installation, no dependencies, no setup required - just download and play!
 ## Game Features
 
 - Retro 8-bit graphics style
+- Background music and sound effects
 - Simple, intuitive controls
 - Survival gameplay mechanics
 - Runs entirely in your browser
