@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>8-Bit Duck Survival</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #202020;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+        }
+        #gameContainer {
+            position: relative;
+            box-shadow: 0 0 40px rgba(0,0,0,0.8);
+            border: 4px solid #fff;
+        }
+        canvas {
+            background-color: #5c94fc;
+            display: block;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 20px;
+            text-shadow: 2px 2px 0 #000;
+            pointer-events: none;
+        }
+        .controls {
+            position: absolute;
+            bottom: 10px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-size: 14px;
+            text-shadow: 1px 1px 0 #000;
+            opacity: 0.8;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="gameContainer">
+        <div id="ui">
+            LEVEL: <span id="levelDisplay">1</span><br>
+            BURSTS: <span id="burstDisplay">1</span> ⚡
+        </div>
+        <canvas id="gameCanvas" width="800" height="450"></canvas>
+        <div class="controls">SPACE: Swim/Hop | SHIFT: Super Burst Flight</div>
+    </div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const levelDisplay = document.getElementById('levelDisplay');
+    const burstDisplay = document.getElementById('burstDisplay');
+
+    // --- Game State ---
+    let gameState = "START"; 
+    let frameCount = 0;
+    let level = 1;
+    let burstCharges = 1;
+    
+    // Environment
+    const floorY = 400;
+    const waterY = 350;
+    const leftLandEnd = 150;
+    const rightLandStart = 650;
+
+    // --- The Duck ---
+    const duck = {
+        x: 50,
+        y: 300,
+        w: 32,
+        h: 32,
+        dy: 0,
+        dx: 1.5, 
+        gravity: 0.5,
+        swimPower: -6,  
+        burstPower: -14, 
+        state: 'ground' 
+    };
+
+    // --- Enemies ---
+    let enemies = [];
+
+    function initLevel() {
+        duck.x = 50;
+        duck.y = 300;
+        duck.dy = 0;
+        duck.state = 'ground';
+        
+        enemies = [];
+        
+        // 1. The Shark (Under/Surface water only)
+        let sharkSpeed = 1.0 + (level * 0.2); 
+        if (sharkSpeed > 5) sharkSpeed = 5; // Cap speed
+
+        enemies.push({
+            type: 'shark',
+            x: 300 + Math.random() * 100,
+            y: waterY + 10, 
+            w: 40,
+            h: 20,
+            dx: -sharkSpeed,
+            dy: 0,
+            dir: -1 
+        });
+
+        // 2. The Alligator (Surface + Jump)
+        enemies.push({
+            type: 'gator',
+            x: 500 + Math.random() * 100,
+            y: waterY, 
+            w: 48,
+            h: 24,
+            dx: -0.5, 
+            dy: 0,
+            canJump: level > 1, 
+            jumpTimer: 0
+        });
+    }
+
+    // --- Drawing Helpers ---
+    function drawRect(x, y, w, h, color) {
+        ctx.fillStyle = color;
+        ctx.fillRect(Math.round(x), Math.round(y), w, h);
+    }
+
+    function drawPixelDuck(x, y) {
+        drawRect(x + 4, y + 8, 20, 16, '#ffcc00'); // Body
+        drawRect(x + 8, y, 16, 12, '#ffcc00'); // Head
+        drawRect(x + 18, y + 2, 4, 4, 'black'); // Eye
+        drawRect(x + 20, y + 2, 2, 2, 'white');
+        drawRect(x + 22, y + 6, 8, 4, '#ff6600'); // Beak
+        drawRect(x + 0, y + 12, 12, 8, '#e6b800'); // Wing
+    }
+
+    function drawPixelShark(enemy) {
+        let x = enemy.x;
+        let y = enemy.y;
+        drawRect(x + 16, y - 12, 8, 12, 'gray'); // Fin
+        drawRect(x, y, 40, 20, 'gray'); // Body
+        drawRect(x + 4, y + 4, 4, 4, 'white'); // Eye
+        drawRect(x + 4, y + 4, 2, 2, 'black');
+        drawRect(x + 2, y + 14, 12, 4, 'white'); // Teeth
+    }
+
+    function drawPixelGator(enemy) {
+        let x = enemy.x;
+        let y = enemy.y;
+        drawRect(x, y, 48, 16, '#00aa00'); // Body
+        drawRect(x - 12, y + 4, 12, 8, '#00aa00'); // Snout
+        drawRect(x + 4, y - 4, 6, 6, 'white'); // Eye
+        drawRect(x + 6, y - 4, 2, 4, 'black');
+        drawRect(x + 10, y - 4, 4, 4, '#006600'); // Spikes
+        drawRect(x + 20, y - 4, 4, 4, '#006600');
+        drawRect(x + 30, y - 4, 4, 4, '#006600');
+    }
+
+    function drawEnvironment() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Lands
+        ctx.fillStyle = '#d2691e';
+        ctx.fillRect(0, floorY, leftLandEnd, canvas.height - floorY);
+        ctx.fillStyle = '#00aa00';
+        ctx.fillRect(0, floorY, leftLandEnd, 10);
+        
+        ctx.fillStyle = '#d2691e';
+        ctx.fillRect(rightLandStart, floorY, canvas.width - rightLandStart, canvas.height - floorY);
+        ctx.fillStyle = '#00aa00';
+        ctx.fillRect(rightLandStart, floorY, canvas.width - rightLandStart, 10);
+
+        // Water
+        ctx.fillStyle = 'rgba(0, 100, 255, 0.7)'; 
+        ctx.fillRect(leftLandEnd, waterY + 15, rightLandStart - leftLandEnd, canvas.height - waterY);
+        
+        // Water Waves
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        for(let i = leftLandEnd; i < rightLandStart; i+= 20) {
+            let waveH = Math.sin((frameCount + i) * 0.05) * 3;
+            ctx.moveTo(i, waterY + 15 + waveH);
+            ctx.lineTo(i + 20, waterY + 15 - waveH);
+        }
+        ctx.stroke();
+    }
+
+    function updatePhysics() {
+        let inWaterZone = duck.x > leftLandEnd - 10 && duck.x < rightLandStart;
+        
+        // Duck Gravity
+        duck.dy += duck.gravity;
+        duck.y += duck.dy;
+
+        // Auto-Walk (Only if playing)
+        if (gameState === "PLAYING" && duck.x < rightLandStart + 50) {
+            duck.x += duck.dx;
+        }
+
+        // Ground/Water Collision
+        if (inWaterZone) {
+            if (duck.y + duck.h > waterY + 20) {
+                duck.y = waterY + 20 - duck.h;
+                duck.dy = 0;
+                duck.state = 'water';
+                duck.y += Math.sin(frameCount * 0.1) * 2; // Bobbing
+            } else {
+                duck.state = 'air';
+            }
+        } else {
+            if (duck.y + duck.h > floorY) {
+                duck.y = floorY - duck.h;
+                duck.dy = 0;
+                duck.state = 'ground';
+            } else {
+                duck.state = 'air';
+            }
+        }
+
+        // Enemy Logic
+        enemies.forEach(enemy => {
+            if (enemy.type === 'shark') {
+                enemy.x += enemy.dx;
+                if (enemy.x < leftLandEnd || enemy.x > rightLandStart - 40) {
+                    enemy.dx *= -1;
+                }
+                if (enemy.y < waterY + 5) enemy.y = waterY + 5;
+            }
+            
+            if (enemy.type === 'gator') {
+                enemy.x += enemy.dx;
+                if (enemy.x < leftLandEnd + 50) enemy.x = rightLandStart - 50;
+                enemy.dy += 0.4;
+                enemy.y += enemy.dy;
+
+                if (enemy.y > waterY) {
+                    enemy.y = waterY;
+                    enemy.dy = 0;
+                    if (enemy.canJump) {
+                        enemy.jumpTimer++;
+                        if (enemy.jumpTimer > 150 && Math.random() > 0.95) {
+                            enemy.dy = -12; 
+                            enemy.jumpTimer = 0;
+                        }
+                    }
+                }
+            }
+
+            // Hitbox Collision
+            // Only check collision if playing (prevents dying after winning)
+            if (gameState === "PLAYING") {
+                if (
+                    duck.x < enemy.x + enemy.w - 5 &&
+                    duck.x + duck.w > enemy.x + 5 &&
+                    duck.y < enemy.y + enemy.h - 5 &&
+                    duck.y + duck.h > enemy.y + 5
+                ) {
+                    gameOver();
+                }
+            }
+        });
+
+        // --- WIN CONDITION FIX ---
+        // We check "gameState === PLAYING" to prevent the loop bug!
+        if (gameState === "PLAYING" && duck.x > rightLandStart + 20) {
+            nextLevel();
+        }
+    }
+
+    function nextLevel() {
+        gameState = "WIN"; // Stops updatePhysics from triggering this again
+        level++;
+        burstCharges++;
+        
+        draw(); // Force one draw call to show updated state
+        
+        setTimeout(() => {
+            initLevel();
+            gameState = "PLAYING";
+            levelDisplay.innerText = level;
+            burstDisplay.innerText = burstCharges;
+        }, 2000);
+    }
+
+    function gameOver() {
+        gameState = "GAMEOVER";
+    }
+
+    function draw() {
+        drawEnvironment();
+
+        enemies.forEach(enemy => {
+            if (enemy.type === 'shark') drawPixelShark(enemy);
+            if (enemy.type === 'gator') drawPixelGator(enemy);
+        });
+
+        drawPixelDuck(duck.x, duck.y);
+
+        // UI
+        ctx.fillStyle = "white";
+        ctx.textAlign = "center";
+        ctx.shadowColor = "black";
+        ctx.shadowBlur = 0;
+
+        if (gameState === "START") {
+            ctx.fillStyle = "rgba(0,0,0,0.7)";
+            ctx.fillRect(0,0,canvas.width, canvas.height);
+            ctx.fillStyle = "white";
+            ctx.font = "40px Courier New";
+            ctx.fillText("8-BIT DUCK SURVIVAL", canvas.width/2, 180);
+            ctx.font = "20px Courier New";
+            ctx.fillText("Press SPACE to Start", canvas.width/2, 230);
+        } 
+        else if (gameState === "GAMEOVER") {
+            ctx.fillStyle = "rgba(150,0,0,0.7)";
+            ctx.fillRect(0,0,canvas.width, canvas.height);
+            ctx.fillStyle = "white";
+            ctx.font = "50px Courier New";
+            ctx.fillText("YOU DIED", canvas.width/2, 200);
+            ctx.font = "20px Courier New";
+            ctx.fillText("Reload page to restart", canvas.width/2, 250);
+        }
+        else if (gameState === "WIN") {
+            ctx.font = "40px Courier New";
+            ctx.fillStyle = "yellow";
+            ctx.fillText("LEVEL COMPLETE!", canvas.width/2, 200);
+            ctx.fillStyle = "white";
+            ctx.font = "20px Courier New";
+            ctx.fillText("+1 Burst Charge Earned", canvas.width/2, 240);
+        }
+    }
+
+    function handleJump() {
+        if (gameState === "START") {
+            gameState = "PLAYING";
+            initLevel();
+            return;
+        }
+        if (gameState !== "PLAYING") return;
+        duck.dy = duck.swimPower;
+    }
+
+    function handleBurst() {
+        if (gameState !== "PLAYING") return;
+        if (burstCharges > 0) {
+            duck.dy = duck.burstPower;
+            burstCharges--;
+            burstDisplay.innerText = burstCharges;
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0,0,canvas.width, canvas.height);
+        }
+    }
+
+    window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space') handleJump();
+        if (e.key === 'Shift') handleBurst();
+    });
+    canvas.addEventListener('mousedown', handleJump);
+
+    function loop() {
+        // We update physics even in WIN state to let the duck land,
+        // BUT inside updatePhysics we now block the 'nextLevel' trigger.
+        if (gameState === "PLAYING" || gameState === "WIN") {
+            updatePhysics();
+            frameCount++;
+        }
+        draw();
+        requestAnimationFrame(loop);
+    }
+
+    initLevel();
+    loop();
+
+</script>
+</body>
+</html>
