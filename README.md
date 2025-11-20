@@ -8,7 +8,11 @@ This project demonstrates the power of AI-assisted game development. Starting fr
 
 ## How to Play
 
-1. **Download** the `duckgame.html` file
+**Play now** on GitHub Pages: https://thewizster.github.io/duckgame/
+
+## Play Off-line
+
+1. **Download** the `index.html` file
 2. **Save** it anywhere on your computer
 3. **Double-click** the file to open it in your web browser
 4. **Play!** Use arrow keys to control the duck and survive
