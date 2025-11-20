@@ -61,19 +61,159 @@
     const levelDisplay = document.getElementById('levelDisplay');
     const burstDisplay = document.getElementById('burstDisplay');
 
-    // --- Game State ---
+    // --- AUDIO ENGINE (Retro Synths) ---
+    let audioCtx = null;
+    let musicInterval = null;
+    let isMusicPlaying = false;
+
+    // Frequencies for C Major Scale
+    const noteFreqs = {
+        C3: 130.81, D3: 146.83, E3: 164.81, F3: 174.61, G3: 196.00, A3: 220.00, B3: 246.94,
+        C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.00, A4: 440.00, B4: 493.88,
+        C5: 523.25, E5: 659.25, G5: 783.99
+    };
+
+    function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+        if (!isMusicPlaying) {
+            startBackgroundMusic();
+        }
+    }
+
+    function playTone(freq, type, duration, volume = 0.1) {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        
+        osc.type = type; // 'square', 'triangle', 'sawtooth'
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        
+        gainNode.gain.setValueAtTime(volume, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+    }
+
+    function sfxJump() {
+        // Slide whistle effect
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+        osc.frequency.linearRampToValueAtTime(300, audioCtx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.1);
+    }
+
+    function sfxBurst() {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.3);
+    }
+
+    function sfxDie() {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.5);
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.5);
+        stopMusic();
+    }
+
+    function sfxWin() {
+        if (!audioCtx) return;
+        // Classic Arpeggio
+        let now = audioCtx.currentTime;
+        [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'square';
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.1, now + i*0.1);
+            gain.gain.linearRampToValueAtTime(0, now + i*0.1 + 0.1);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(now + i*0.1);
+            osc.stop(now + i*0.1 + 0.1);
+        });
+    }
+
+    function startBackgroundMusic() {
+        if (isMusicPlaying) return;
+        isMusicPlaying = true;
+        
+        let noteIndex = 0;
+        // A cheery 8-bit loop
+        const melody = [
+            'C4', 'E4', 'G4', 'C5', 'G4', 'E4', 'C4', 'P',
+            'D4', 'F4', 'A4', 'D5', 'A4', 'F4', 'D4', 'P',
+            'E4', 'G4', 'B4', 'E5', 'B4', 'G4', 'E4', 'P',
+            'G3', 'B3', 'D4', 'G4', 'D4', 'B3', 'G3', 'P' 
+        ];
+
+        musicInterval = setInterval(() => {
+            if (gameState !== "PLAYING") return;
+            
+            let note = melody[noteIndex];
+            if (note !== 'P') { // P = Pause
+                playTone(noteFreqs[note], 'square', 0.1, 0.03); // Melody
+                
+                // Bassline (Alternating 1-5)
+                if (noteIndex % 4 === 0) {
+                    playTone(noteFreqs[note] / 2, 'triangle', 0.2, 0.05); // Bass
+                }
+            }
+            
+            noteIndex = (noteIndex + 1) % melody.length;
+        }, 150); // Tempo
+    }
+
+    function stopMusic() {
+        isMusicPlaying = false;
+        if (musicInterval) clearInterval(musicInterval);
+    }
+
+
+    // --- GAME LOGIC ---
     let gameState = "START"; 
     let frameCount = 0;
     let level = 1;
     let burstCharges = 1;
     
-    // Environment
     const floorY = 400;
     const waterY = 350;
     const leftLandEnd = 150;
     const rightLandStart = 650;
 
-    // --- The Duck ---
     const duck = {
         x: 50,
         y: 300,
@@ -87,7 +227,6 @@
         state: 'ground' 
     };
 
-    // --- Enemies ---
     let enemies = [];
 
     function initLevel() {
@@ -98,9 +237,8 @@
         
         enemies = [];
         
-        // 1. The Shark (Under/Surface water only)
         let sharkSpeed = 1.0 + (level * 0.2); 
-        if (sharkSpeed > 5) sharkSpeed = 5; // Cap speed
+        if (sharkSpeed > 5) sharkSpeed = 5; 
 
         enemies.push({
             type: 'shark',
@@ -113,7 +251,6 @@
             dir: -1 
         });
 
-        // 2. The Alligator (Surface + Jump)
         enemies.push({
             type: 'gator',
             x: 500 + Math.random() * 100,
@@ -127,39 +264,38 @@
         });
     }
 
-    // --- Drawing Helpers ---
     function drawRect(x, y, w, h, color) {
         ctx.fillStyle = color;
         ctx.fillRect(Math.round(x), Math.round(y), w, h);
     }
 
     function drawPixelDuck(x, y) {
-        drawRect(x + 4, y + 8, 20, 16, '#ffcc00'); // Body
-        drawRect(x + 8, y, 16, 12, '#ffcc00'); // Head
-        drawRect(x + 18, y + 2, 4, 4, 'black'); // Eye
+        drawRect(x + 4, y + 8, 20, 16, '#ffcc00'); 
+        drawRect(x + 8, y, 16, 12, '#ffcc00'); 
+        drawRect(x + 18, y + 2, 4, 4, 'black'); 
         drawRect(x + 20, y + 2, 2, 2, 'white');
-        drawRect(x + 22, y + 6, 8, 4, '#ff6600'); // Beak
-        drawRect(x + 0, y + 12, 12, 8, '#e6b800'); // Wing
+        drawRect(x + 22, y + 6, 8, 4, '#ff6600'); 
+        drawRect(x + 0, y + 12, 12, 8, '#e6b800'); 
     }
 
     function drawPixelShark(enemy) {
         let x = enemy.x;
         let y = enemy.y;
-        drawRect(x + 16, y - 12, 8, 12, 'gray'); // Fin
-        drawRect(x, y, 40, 20, 'gray'); // Body
-        drawRect(x + 4, y + 4, 4, 4, 'white'); // Eye
+        drawRect(x + 16, y - 12, 8, 12, 'gray'); 
+        drawRect(x, y, 40, 20, 'gray'); 
+        drawRect(x + 4, y + 4, 4, 4, 'white'); 
         drawRect(x + 4, y + 4, 2, 2, 'black');
-        drawRect(x + 2, y + 14, 12, 4, 'white'); // Teeth
+        drawRect(x + 2, y + 14, 12, 4, 'white'); 
     }
 
     function drawPixelGator(enemy) {
         let x = enemy.x;
         let y = enemy.y;
-        drawRect(x, y, 48, 16, '#00aa00'); // Body
-        drawRect(x - 12, y + 4, 12, 8, '#00aa00'); // Snout
-        drawRect(x + 4, y - 4, 6, 6, 'white'); // Eye
+        drawRect(x, y, 48, 16, '#00aa00'); 
+        drawRect(x - 12, y + 4, 12, 8, '#00aa00'); 
+        drawRect(x + 4, y - 4, 6, 6, 'white'); 
         drawRect(x + 6, y - 4, 2, 4, 'black');
-        drawRect(x + 10, y - 4, 4, 4, '#006600'); // Spikes
+        drawRect(x + 10, y - 4, 4, 4, '#006600'); 
         drawRect(x + 20, y - 4, 4, 4, '#006600');
         drawRect(x + 30, y - 4, 4, 4, '#006600');
     }
@@ -167,7 +303,6 @@
     function drawEnvironment() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Lands
         ctx.fillStyle = '#d2691e';
         ctx.fillRect(0, floorY, leftLandEnd, canvas.height - floorY);
         ctx.fillStyle = '#00aa00';
@@ -178,11 +313,9 @@
         ctx.fillStyle = '#00aa00';
         ctx.fillRect(rightLandStart, floorY, canvas.width - rightLandStart, 10);
 
-        // Water
         ctx.fillStyle = 'rgba(0, 100, 255, 0.7)'; 
         ctx.fillRect(leftLandEnd, waterY + 15, rightLandStart - leftLandEnd, canvas.height - waterY);
         
-        // Water Waves
         ctx.strokeStyle = 'white';
         ctx.lineWidth = 3;
         ctx.beginPath();
@@ -197,22 +330,19 @@
     function updatePhysics() {
         let inWaterZone = duck.x > leftLandEnd - 10 && duck.x < rightLandStart;
         
-        // Duck Gravity
         duck.dy += duck.gravity;
         duck.y += duck.dy;
 
-        // Auto-Walk (Only if playing)
         if (gameState === "PLAYING" && duck.x < rightLandStart + 50) {
             duck.x += duck.dx;
         }
 
-        // Ground/Water Collision
         if (inWaterZone) {
             if (duck.y + duck.h > waterY + 20) {
                 duck.y = waterY + 20 - duck.h;
                 duck.dy = 0;
                 duck.state = 'water';
-                duck.y += Math.sin(frameCount * 0.1) * 2; // Bobbing
+                duck.y += Math.sin(frameCount * 0.1) * 2; 
             } else {
                 duck.state = 'air';
             }
@@ -226,7 +356,6 @@
             }
         }
 
-        // Enemy Logic
         enemies.forEach(enemy => {
             if (enemy.type === 'shark') {
                 enemy.x += enemy.dx;
@@ -255,8 +384,6 @@
                 }
             }
 
-            // Hitbox Collision
-            // Only check collision if playing (prevents dying after winning)
             if (gameState === "PLAYING") {
                 if (
                     duck.x < enemy.x + enemy.w - 5 &&
@@ -269,29 +396,30 @@
             }
         });
 
-        // --- WIN CONDITION FIX ---
-        // We check "gameState === PLAYING" to prevent the loop bug!
         if (gameState === "PLAYING" && duck.x > rightLandStart + 20) {
             nextLevel();
         }
     }
 
     function nextLevel() {
-        gameState = "WIN"; // Stops updatePhysics from triggering this again
+        gameState = "WIN"; 
         level++;
         burstCharges++;
+        sfxWin(); // Play Win Sound
         
-        draw(); // Force one draw call to show updated state
+        draw(); 
         
         setTimeout(() => {
             initLevel();
             gameState = "PLAYING";
             levelDisplay.innerText = level;
             burstDisplay.innerText = burstCharges;
+            if (!isMusicPlaying) startBackgroundMusic(); // Restart music
         }, 2000);
     }
 
     function gameOver() {
+        sfxDie(); // Play Die Sound
         gameState = "GAMEOVER";
     }
 
@@ -305,7 +433,6 @@
 
         drawPixelDuck(duck.x, duck.y);
 
-        // UI
         ctx.fillStyle = "white";
         ctx.textAlign = "center";
         ctx.shadowColor = "black";
@@ -319,6 +446,9 @@
             ctx.fillText("8-BIT DUCK SURVIVAL", canvas.width/2, 180);
             ctx.font = "20px Courier New";
             ctx.fillText("Press SPACE to Start", canvas.width/2, 230);
+            ctx.font = "14px Courier New";
+            ctx.fillStyle = "yellow";
+            ctx.fillText("(Turn volume up!)", canvas.width/2, 260);
         } 
         else if (gameState === "GAMEOVER") {
             ctx.fillStyle = "rgba(150,0,0,0.7)";
@@ -340,16 +470,24 @@
     }
 
     function handleJump() {
+        // INIT AUDIO ON FIRST INTERACTION
+        initAudio();
+
         if (gameState === "START") {
             gameState = "PLAYING";
             initLevel();
             return;
         }
         if (gameState !== "PLAYING") return;
+        
         duck.dy = duck.swimPower;
+        sfxJump(); // Play Jump Sound
     }
 
     function handleBurst() {
+        // INIT AUDIO if not already
+        initAudio();
+
         if (gameState !== "PLAYING") return;
         if (burstCharges > 0) {
             duck.dy = duck.burstPower;
@@ -357,6 +495,7 @@
             burstDisplay.innerText = burstCharges;
             ctx.fillStyle = 'white';
             ctx.fillRect(0,0,canvas.width, canvas.height);
+            sfxBurst(); // Play Burst Sound
         }
     }
 
@@ -367,8 +506,6 @@
     canvas.addEventListener('mousedown', handleJump);
 
     function loop() {
-        // We update physics even in WIN state to let the duck land,
-        // BUT inside updatePhysics we now block the 'nextLevel' trigger.
         if (gameState === "PLAYING" || gameState === "WIN") {
             updatePhysics();
             frameCount++;
