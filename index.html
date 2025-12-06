@@ -215,6 +215,36 @@
     let level = 1;
     let burstCharges = 1;
     
+    // --- HIGH SCORE SYSTEM ---
+    let highScores = [];
+    let isNewHighScore = false;
+    let playerInitials = ['A', 'A', 'A'];
+    let currentInitialIndex = 0;
+    const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    
+    function loadHighScores() {
+        const saved = localStorage.getItem('duckGameHighScores');
+        if (saved) {
+            highScores = JSON.parse(saved);
+        }
+    }
+    
+    function saveHighScores() {
+        localStorage.setItem('duckGameHighScores', JSON.stringify(highScores));
+    }
+    
+    function isTopScore(level) {
+        if (highScores.length < 5) return true;
+        return level > highScores[highScores.length - 1].level;
+    }
+    
+    function addHighScore(initials, level) {
+        highScores.push({ initials: initials.join(''), level: level });
+        highScores.sort((a, b) => b.level - a.level);
+        highScores = highScores.slice(0, 5);
+        saveHighScores();
+    }
+    
     const floorY = 400;
     const waterY = 350;
     const leftLandEnd = 150;
@@ -426,7 +456,135 @@
 
     function gameOver() {
         sfxDie(); // Play Die Sound
-        gameState = "GAMEOVER";
+        
+        // Check if player made top 5
+        if (isTopScore(level)) {
+            isNewHighScore = true;
+            playerInitials = ['A', 'A', 'A'];
+            currentInitialIndex = 0;
+            gameState = "ENTER_INITIALS";
+        } else {
+            gameState = "GAMEOVER";
+        }
+    }
+
+    function drawInitialEntry() {
+        ctx.fillStyle = "rgba(0,0,0,0.85)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Title
+        ctx.fillStyle = "yellow";
+        ctx.font = "40px Courier New";
+        ctx.textAlign = "center";
+        ctx.fillText("NEW HIGH SCORE!", canvas.width/2, 100);
+        
+        ctx.fillStyle = "white";
+        ctx.font = "24px Courier New";
+        ctx.fillText(`Level ${level} Completed`, canvas.width/2, 140);
+        
+        // Instructions
+        ctx.font = "16px Courier New";
+        ctx.fillStyle = "#aaa";
+        ctx.fillText("Enter Your Initials:", canvas.width/2, 190);
+        
+        // Draw initial boxes
+        const boxWidth = 60;
+        const boxHeight = 80;
+        const spacing = 20;
+        const startX = canvas.width/2 - (boxWidth * 1.5 + spacing);
+        const boxY = 220;
+        
+        for (let i = 0; i < 3; i++) {
+            const x = startX + i * (boxWidth + spacing);
+            
+            // Box
+            if (i === currentInitialIndex) {
+                ctx.strokeStyle = "yellow";
+                ctx.lineWidth = 4;
+            } else {
+                ctx.strokeStyle = "#555";
+                ctx.lineWidth = 2;
+            }
+            ctx.strokeRect(x, boxY, boxWidth, boxHeight);
+            
+            // Letter
+            ctx.fillStyle = i === currentInitialIndex ? "yellow" : "white";
+            ctx.font = "48px Courier New";
+            ctx.fillText(playerInitials[i], x + boxWidth/2, boxY + 60);
+        }
+        
+        // Arrow indicators for current letter
+        if (frameCount % 60 < 30) {
+            const x = startX + currentInitialIndex * (boxWidth + spacing);
+            ctx.fillStyle = "yellow";
+            ctx.font = "30px Courier New";
+            ctx.fillText("▲", x + boxWidth/2, boxY - 10);
+            ctx.fillText("▼", x + boxWidth/2, boxY + boxHeight + 35);
+        }
+        
+        // Controls
+        ctx.font = "14px Courier New";
+        ctx.fillStyle = "#aaa";
+        ctx.fillText("↑↓: Change Letter  |  ←→: Move Position  |  ENTER: Confirm", canvas.width/2, 370);
+    }
+    
+    function drawScoreboard() {
+        const boardWidth = 400;
+        const boardHeight = 280;
+        const boardX = canvas.width/2 - boardWidth/2;
+        const boardY = 80;
+        
+        // Board background
+        ctx.fillStyle = "rgba(0,0,0,0.9)";
+        ctx.fillRect(boardX, boardY, boardWidth, boardHeight);
+        ctx.strokeStyle = "yellow";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(boardX, boardY, boardWidth, boardHeight);
+        
+        // Title
+        ctx.fillStyle = "yellow";
+        ctx.font = "28px Courier New";
+        ctx.textAlign = "center";
+        ctx.fillText("★ HIGH SCORES ★", canvas.width/2, boardY + 35);
+        
+        // Headers
+        ctx.fillStyle = "#aaa";
+        ctx.font = "16px Courier New";
+        ctx.textAlign = "left";
+        ctx.fillText("RANK", boardX + 30, boardY + 70);
+        ctx.fillText("PLAYER", boardX + 120, boardY + 70);
+        ctx.textAlign = "right";
+        ctx.fillText("LEVEL", boardX + boardWidth - 30, boardY + 70);
+        
+        // Divider
+        ctx.strokeStyle = "#555";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(boardX + 20, boardY + 80);
+        ctx.lineTo(boardX + boardWidth - 20, boardY + 80);
+        ctx.stroke();
+        
+        // Scores
+        ctx.font = "20px Courier New";
+        for (let i = 0; i < 5; i++) {
+            const y = boardY + 115 + i * 30;
+            
+            if (i < highScores.length) {
+                ctx.fillStyle = i === 0 ? "gold" : i === 1 ? "silver" : i === 2 ? "#cd7f32" : "white";
+                ctx.textAlign = "left";
+                ctx.fillText(`${i + 1}.`, boardX + 30, y);
+                ctx.fillText(highScores[i].initials, boardX + 120, y);
+                ctx.textAlign = "right";
+                ctx.fillText(highScores[i].level.toString(), boardX + boardWidth - 30, y);
+            } else {
+                ctx.fillStyle = "#333";
+                ctx.textAlign = "left";
+                ctx.fillText(`${i + 1}.`, boardX + 30, y);
+                ctx.fillText("---", boardX + 120, y);
+                ctx.textAlign = "right";
+                ctx.fillText("-", boardX + boardWidth - 30, y);
+            }
+        }
     }
 
     function draw() {
@@ -456,14 +614,24 @@
             ctx.fillStyle = "yellow";
             ctx.fillText("(Sound Enabled)", canvas.width/2, 260);
         } 
+        else if (gameState === "ENTER_INITIALS") {
+            drawInitialEntry();
+        }
         else if (gameState === "GAMEOVER") {
             ctx.fillStyle = "rgba(150,0,0,0.7)";
             ctx.fillRect(0,0,canvas.width, canvas.height);
             ctx.fillStyle = "white";
             ctx.font = "50px Courier New";
-            ctx.fillText("YOU DIED", canvas.width/2, 200);
-            ctx.font = "20px Courier New";
-            ctx.fillText("Reload page to restart", canvas.width/2, 250);
+            ctx.fillText("YOU DIED", canvas.width/2, 140);
+            ctx.font = "24px Courier New";
+            ctx.fillText(`Level ${level} Reached`, canvas.width/2, 180);
+            
+            // Draw scoreboard
+            drawScoreboard();
+            
+            ctx.font = "16px Courier New";
+            ctx.fillStyle = "#aaa";
+            ctx.fillText("Reload page to restart", canvas.width/2, 400);
         }
         else if (gameState === "WIN") {
             ctx.font = "40px Courier New";
@@ -504,6 +672,42 @@
     }
 
     window.addEventListener('keydown', (e) => {
+        // Initial entry controls
+        if (gameState === "ENTER_INITIALS") {
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                const currentChar = playerInitials[currentInitialIndex];
+                const charIndex = ALPHABET.indexOf(currentChar);
+                playerInitials[currentInitialIndex] = ALPHABET[(charIndex + 1) % ALPHABET.length];
+                playTone(noteFreqs.C5, 'square', 0.05, 0.05);
+            }
+            else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const currentChar = playerInitials[currentInitialIndex];
+                const charIndex = ALPHABET.indexOf(currentChar);
+                playerInitials[currentInitialIndex] = ALPHABET[(charIndex - 1 + ALPHABET.length) % ALPHABET.length];
+                playTone(noteFreqs.C5, 'square', 0.05, 0.05);
+            }
+            else if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                currentInitialIndex = Math.max(0, currentInitialIndex - 1);
+                playTone(noteFreqs.E5, 'square', 0.05, 0.05);
+            }
+            else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                currentInitialIndex = Math.min(2, currentInitialIndex + 1);
+                playTone(noteFreqs.E5, 'square', 0.05, 0.05);
+            }
+            else if (e.key === 'Enter') {
+                e.preventDefault();
+                addHighScore(playerInitials, level);
+                sfxWin();
+                gameState = "GAMEOVER";
+            }
+            return;
+        }
+        
+        // Normal game controls
         if (e.code === 'Space') handleJump();
         if (e.key === 'Shift') handleBurst();
     });
@@ -518,6 +722,7 @@
         requestAnimationFrame(loop);
     }
 
+    loadHighScores();
     initLevel();
     loop();
 

@@ -23,15 +23,19 @@ No installation, no dependencies, no setup required - just download and play!
 
 - Retro 8-bit graphics style
 - Background music and sound effects
+- **High score system** with localStorage persistence
+- **Arcade-style initial entry** for top 5 scores
+- **Leaderboard display** on game over screen
 - Simple, intuitive controls
 - Survival gameplay mechanics
-- Runs entirely in your browser
+- Runs entirely in your browser (no server required)
 
 ## Technical Details
 
 - **Created with**: Google Gemini 3 Pro
-- **Development**: 5 revision rounds of basic prompting
-- **Source**: Hand-drawn sketch
+- **Initial Development**: 5 revision rounds of basic prompting with Gemini.
+- **New Features and Updates**: Claude Sonnet 4.5
+- **Design Source**: Hand-drawn sketch shared with Gemini
 - **Technology**: Pure HTML5 Canvas, JavaScript, and CSS
 - **Requirements**: Any modern web browser
 
