@@ -19,6 +19,8 @@ This project demonstrates the power of AI-assisted game development. Starting fr
 
 - **Survive** by avoiding sharks and gators as you progress through levels
 - **Stay on water** to regenerate health - gain 10 HP every second while floating
+- **HP persists across levels** - Your health carries over, so manage it wisely
+- **Visual HP regeneration timer** - See how much time remaining until next HP gain
 - **Take hits** - You start with 100 HP and lose 25 HP per collision
 - **Reach the right side** of the screen to complete each level and earn burst charges
 - **Compete** for the top 5 high scores

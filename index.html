@@ -35,6 +35,27 @@
         .hp-bar {
             color: #ff6666;
         }
+        .hp-progress {
+            position: absolute;
+            top: 80px;
+            left: 10px;
+            color: #88ddff;
+            font-size: 14px;
+            text-shadow: 1px 1px 0 #000;
+            pointer-events: none;
+        }
+        .hp-progress-bar {
+            width: 100px;
+            height: 8px;
+            background-color: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.4);
+            margin-top: 2px;
+        }
+        .hp-progress-fill {
+            height: 100%;
+            background-color: #88ddff;
+            transition: width 0.1s linear;
+        }
         .controls {
             position: absolute;
             bottom: 10px;
@@ -56,6 +77,12 @@
             BURSTS: <span id="burstDisplay">1</span> ⚡<br>
             <span class="hp-bar">HP: <span id="hpDisplay">100</span> ❤</span>
         </div>
+        <div id="hpProgressContainer" class="hp-progress">
+            <div style="margin-bottom: 2px;">HP Regen: <span id="hpProgressText">0.0s</span></div>
+            <div class="hp-progress-bar">
+                <div id="hpProgressFill" class="hp-progress-fill" style="width: 0%;"></div>
+            </div>
+        </div>
         <canvas id="gameCanvas" width="800" height="450"></canvas>
         <div class="controls">SPACE: Swim/Hop | SHIFT: Super Burst Flight</div>
     </div>
@@ -66,6 +93,9 @@
     const levelDisplay = document.getElementById('levelDisplay');
     const burstDisplay = document.getElementById('burstDisplay');
     const hpDisplay = document.getElementById('hpDisplay');
+    const hpProgressText = document.getElementById('hpProgressText');
+    const hpProgressFill = document.getElementById('hpProgressFill');
+    const hpProgressContainer = document.getElementById('hpProgressContainer');
 
     // --- AUDIO ENGINE (Retro Synths) ---
     let audioCtx = null;
@@ -282,8 +312,8 @@
         duck.dy = 0;
         duck.state = 'ground';
         
-        // Reset HP to max at start of each level
-        hp = maxHp;
+        // Don't reset HP - it should persist across levels
+        // Only update the display
         hpDisplay.innerText = hp;
         waterTime = 0;
         
@@ -400,6 +430,13 @@
                 if (gameState === "PLAYING") {
                     waterTime++;
                     
+                    // Update progress indicator
+                    const progress = (waterTime / HP_GAIN_INTERVAL) * 100;
+                    const secondsRemaining = ((HP_GAIN_INTERVAL - waterTime) / 60).toFixed(1);
+                    hpProgressFill.style.width = progress + '%';
+                    hpProgressText.innerText = secondsRemaining + 's';
+                    hpProgressContainer.style.display = 'block';
+                    
                     // Every second (60 frames) on water, gain 10 HP
                     if (waterTime >= HP_GAIN_INTERVAL) {
                         if (hp < maxHp) {
@@ -408,12 +445,13 @@
                             // Visual feedback - play a subtle tone
                             playTone(noteFreqs.E5, 'sine', 0.05, 0.02);
                         }
-                        waterTime = 0;
+                        waterTime = 0; // Reset to restart the indicator
                     }
                 }
             } else {
                 duck.state = 'air';
                 waterTime = 0; // Reset water time when in air
+                hpProgressContainer.style.display = 'none'; // Hide progress indicator
             }
         } else {
             if (duck.y + duck.h > floorY) {
@@ -421,9 +459,11 @@
                 duck.dy = 0;
                 duck.state = 'ground';
                 waterTime = 0; // Reset water time on ground
+                hpProgressContainer.style.display = 'none'; // Hide progress indicator
             } else {
                 duck.state = 'air';
                 waterTime = 0; // Reset water time when in air
+                hpProgressContainer.style.display = 'none'; // Hide progress indicator
             }
         }
 
@@ -773,6 +813,7 @@
 
     loadHighScores();
     initLevel();
+    hpProgressContainer.style.display = 'none'; // Hide HP progress initially
     loop();
 
 </script>
