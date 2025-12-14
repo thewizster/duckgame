@@ -10,6 +10,22 @@ This project demonstrates the power of AI-assisted game development. Starting fr
 
 **Play now** on GitHub Pages: https://thewizster.github.io/duckgame/
 
+### Controls
+
+- **SPACE**: Swim/Hop
+- **SHIFT**: Super Burst Flight (uses burst charges)
+
+### Gameplay Mechanics
+
+- **Survive** by avoiding sharks and gators as you progress through levels
+- **Stay on water** to regenerate health - gain 10 HP every second while floating
+- **HP persists across levels** - Your health carries over, so manage it wisely
+- **Persistent HP regeneration timer** - Always visible throughout level, pauses when not on water
+- **Timer continues on landing** - HP regen progress resumes when you return to water
+- **Take hits** - You start with 100 HP and lose 25 HP per collision
+- **Reach the right side** of the screen to complete each level and earn burst charges
+- **Compete** for the top 5 high scores
+
 ## Play Off-line
 
 1. **Download** the `index.html` file
@@ -26,6 +42,8 @@ No installation, no dependencies, no setup required - just download and play!
 - **High score system** with localStorage persistence
 - **Arcade-style initial entry** for top 5 scores
 - **Leaderboard display** on game over screen
+- **Health Point (HP) reward system** - Stay on water to regenerate health
+- **Non-instant death** - Get hit up to 4 times before game over
 - Simple, intuitive controls
 - Survival gameplay mechanics
 - Runs entirely in your browser (no server required)

@@ -32,6 +32,30 @@
             text-shadow: 2px 2px 0 #000;
             pointer-events: none;
         }
+        .hp-bar {
+            color: #ff6666;
+        }
+        .hp-progress {
+            position: absolute;
+            top: 95px;
+            left: 10px;
+            color: #88ddff;
+            font-size: 14px;
+            text-shadow: 1px 1px 0 #000;
+            pointer-events: none;
+        }
+        .hp-progress-bar {
+            width: 100px;
+            height: 8px;
+            background-color: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.4);
+            margin-top: 2px;
+        }
+        .hp-progress-fill {
+            height: 100%;
+            background-color: #88ddff;
+            transition: width 0.1s linear;
+        }
         .controls {
             position: absolute;
             bottom: 10px;
@@ -50,7 +74,14 @@
     <div id="gameContainer">
         <div id="ui">
             LEVEL: <span id="levelDisplay">1</span><br>
-            BURSTS: <span id="burstDisplay">1</span> ⚡
+            BURSTS: <span id="burstDisplay">1</span> ⚡<br>
+            <span class="hp-bar">HP: <span id="hpDisplay">100</span> ❤</span>
+        </div>
+        <div id="hpProgressContainer" class="hp-progress">
+            <div style="margin-bottom: 2px;">HP Regen: <span id="hpProgressText">0.0s</span></div>
+            <div class="hp-progress-bar">
+                <div id="hpProgressFill" class="hp-progress-fill" style="width: 0%;"></div>
+            </div>
         </div>
         <canvas id="gameCanvas" width="800" height="450"></canvas>
         <div class="controls">SPACE: Swim/Hop | SHIFT: Super Burst Flight</div>
@@ -61,6 +92,10 @@
     const ctx = canvas.getContext('2d');
     const levelDisplay = document.getElementById('levelDisplay');
     const burstDisplay = document.getElementById('burstDisplay');
+    const hpDisplay = document.getElementById('hpDisplay');
+    const hpProgressText = document.getElementById('hpProgressText');
+    const hpProgressFill = document.getElementById('hpProgressFill');
+    const hpProgressContainer = document.getElementById('hpProgressContainer');
 
     // --- AUDIO ENGINE (Retro Synths) ---
     let audioCtx = null;
@@ -214,6 +249,12 @@
     let frameCount = 0;
     let level = 1;
     let burstCharges = 1;
+    let hp = 100;
+    let maxHp = 100;
+    let waterTime = 0; // Time spent on water
+    const HP_GAIN_INTERVAL = 60; // Frames (1 second at 60fps)
+    const COLLISION_KNOCKBACK = 50; // Pixels to push back on collision
+    const COLLISION_DAMAGE = 25; // HP lost per collision
     
     // --- HIGH SCORE SYSTEM ---
     let highScores = [];
@@ -270,6 +311,16 @@
         duck.y = 300;
         duck.dy = 0;
         duck.state = 'ground';
+        
+        // Don't reset HP - it should persist across levels
+        // Only update the display
+        hpDisplay.innerText = hp;
+        waterTime = 0;
+        
+        // Show HP progress indicator for the level
+        hpProgressContainer.style.display = 'block';
+        hpProgressFill.style.width = '0%';
+        hpProgressText.innerText = '1.0s';
         
         enemies = [];
         
@@ -379,16 +430,41 @@
                 duck.dy = 0;
                 duck.state = 'water';
                 duck.y += Math.sin(frameCount * 0.1) * 2; 
+                
+                // REWARD SYSTEM: Gain HP for staying on water
+                if (gameState === "PLAYING") {
+                    waterTime++;
+                    
+                    // Update progress indicator
+                    const progress = (waterTime / HP_GAIN_INTERVAL) * 100;
+                    const secondsRemaining = ((HP_GAIN_INTERVAL - waterTime) / 60).toFixed(1);
+                    hpProgressFill.style.width = progress + '%';
+                    hpProgressText.innerText = secondsRemaining + 's';
+                    
+                    // Every second (60 frames) on water, gain 10 HP
+                    if (waterTime >= HP_GAIN_INTERVAL) {
+                        if (hp < maxHp) {
+                            hp = Math.min(hp + 10, maxHp);
+                            hpDisplay.innerText = hp;
+                            // Visual feedback - play a subtle tone
+                            playTone(noteFreqs.E5, 'sine', 0.05, 0.02);
+                        }
+                        waterTime = 0; // Reset to restart the indicator
+                    }
+                }
             } else {
                 duck.state = 'air';
+                // Don't reset waterTime - just pause it (keep visual visible)
             }
         } else {
             if (duck.y + duck.h > floorY) {
                 duck.y = floorY - duck.h;
                 duck.dy = 0;
                 duck.state = 'ground';
+                // Don't reset waterTime - just pause it (keep visual visible)
             } else {
                 duck.state = 'air';
+                // Don't reset waterTime - just pause it (keep visual visible)
             }
         }
 
@@ -427,7 +503,21 @@
                     duck.y < enemy.y + enemy.h - 5 &&
                     duck.y + duck.h > enemy.y + 5
                 ) {
-                    gameOver();
+                    // Reduce HP by collision damage
+                    hp -= COLLISION_DAMAGE;
+                    hpDisplay.innerText = hp;
+                    
+                    // Push duck back to avoid repeated collisions
+                    duck.x -= COLLISION_KNOCKBACK;
+                    if (duck.x < 0) duck.x = 0;
+                    
+                    // Play hit sound
+                    playTone(noteFreqs.C3, 'sawtooth', 0.2, 0.1);
+                    
+                    // Check if HP reached zero
+                    if (hp <= 0) {
+                        gameOver();
+                    }
                 }
             }
         });
