@@ -222,7 +222,9 @@
     let hp = 100;
     let maxHp = 100;
     let waterTime = 0; // Time spent on water
-    let hpGainCooldown = 0; // Cooldown between HP gains
+    const HP_GAIN_INTERVAL = 60; // Frames (1 second at 60fps)
+    const COLLISION_KNOCKBACK = 50; // Pixels to push back on collision
+    const COLLISION_DAMAGE = 25; // HP lost per collision
     
     // --- HIGH SCORE SYSTEM ---
     let highScores = [];
@@ -284,7 +286,6 @@
         hp = maxHp;
         hpDisplay.innerText = hp;
         waterTime = 0;
-        hpGainCooldown = 0;
         
         enemies = [];
         
@@ -399,8 +400,8 @@
                 if (gameState === "PLAYING") {
                     waterTime++;
                     
-                    // Every 60 frames (1 second) on water, gain 1 HP
-                    if (waterTime >= 60 && hpGainCooldown <= 0) {
+                    // Every second (60 frames) on water, gain 1 HP
+                    if (waterTime >= HP_GAIN_INTERVAL) {
                         if (hp < maxHp) {
                             hp = Math.min(hp + 1, maxHp);
                             hpDisplay.innerText = hp;
@@ -408,7 +409,6 @@
                             playTone(noteFreqs.E5, 'sine', 0.05, 0.02);
                         }
                         waterTime = 0;
-                        hpGainCooldown = 60; // 1 second cooldown
                     }
                 }
             } else {
@@ -425,11 +425,6 @@
                 duck.state = 'air';
                 waterTime = 0; // Reset water time when in air
             }
-        }
-        
-        // Decrement HP gain cooldown
-        if (hpGainCooldown > 0) {
-            hpGainCooldown--;
         }
 
         enemies.forEach(enemy => {
@@ -467,12 +462,12 @@
                     duck.y < enemy.y + enemy.h - 5 &&
                     duck.y + duck.h > enemy.y + 5
                 ) {
-                    // Reduce HP by 25 on collision
-                    hp -= 25;
+                    // Reduce HP by collision damage
+                    hp -= COLLISION_DAMAGE;
                     hpDisplay.innerText = hp;
                     
                     // Push duck back to avoid repeated collisions
-                    duck.x -= 50;
+                    duck.x -= COLLISION_KNOCKBACK;
                     if (duck.x < 0) duck.x = 0;
                     
                     // Play hit sound
