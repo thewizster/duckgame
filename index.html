@@ -400,10 +400,10 @@
                 if (gameState === "PLAYING") {
                     waterTime++;
                     
-                    // Every second (60 frames) on water, gain 1 HP
+                    // Every second (60 frames) on water, gain 10 HP
                     if (waterTime >= HP_GAIN_INTERVAL) {
                         if (hp < maxHp) {
-                            hp = Math.min(hp + 1, maxHp);
+                            hp = Math.min(hp + 10, maxHp);
                             hpDisplay.innerText = hp;
                             // Visual feedback - play a subtle tone
                             playTone(noteFreqs.E5, 'sine', 0.05, 0.02);
