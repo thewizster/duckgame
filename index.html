@@ -317,6 +317,11 @@
         hpDisplay.innerText = hp;
         waterTime = 0;
         
+        // Show HP progress indicator for the level
+        hpProgressContainer.style.display = 'block';
+        hpProgressFill.style.width = '0%';
+        hpProgressText.innerText = '1.0s';
+        
         enemies = [];
         
         let sharkSpeed = 1.0 + (level * 0.2); 
@@ -435,7 +440,6 @@
                     const secondsRemaining = ((HP_GAIN_INTERVAL - waterTime) / 60).toFixed(1);
                     hpProgressFill.style.width = progress + '%';
                     hpProgressText.innerText = secondsRemaining + 's';
-                    hpProgressContainer.style.display = 'block';
                     
                     // Every second (60 frames) on water, gain 10 HP
                     if (waterTime >= HP_GAIN_INTERVAL) {
@@ -450,20 +454,17 @@
                 }
             } else {
                 duck.state = 'air';
-                waterTime = 0; // Reset water time when in air
-                hpProgressContainer.style.display = 'none'; // Hide progress indicator
+                // Don't reset waterTime - just pause it (keep visual visible)
             }
         } else {
             if (duck.y + duck.h > floorY) {
                 duck.y = floorY - duck.h;
                 duck.dy = 0;
                 duck.state = 'ground';
-                waterTime = 0; // Reset water time on ground
-                hpProgressContainer.style.display = 'none'; // Hide progress indicator
+                // Don't reset waterTime - just pause it (keep visual visible)
             } else {
                 duck.state = 'air';
-                waterTime = 0; // Reset water time when in air
-                hpProgressContainer.style.display = 'none'; // Hide progress indicator
+                // Don't reset waterTime - just pause it (keep visual visible)
             }
         }
 
@@ -813,7 +814,6 @@
 
     loadHighScores();
     initLevel();
-    hpProgressContainer.style.display = 'none'; // Hide HP progress initially
     loop();
 
 </script>
