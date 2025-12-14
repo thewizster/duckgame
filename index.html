@@ -32,6 +32,9 @@
             text-shadow: 2px 2px 0 #000;
             pointer-events: none;
         }
+        .hp-bar {
+            color: #ff6666;
+        }
         .controls {
             position: absolute;
             bottom: 10px;
@@ -50,7 +53,8 @@
     <div id="gameContainer">
         <div id="ui">
             LEVEL: <span id="levelDisplay">1</span><br>
-            BURSTS: <span id="burstDisplay">1</span> ⚡
+            BURSTS: <span id="burstDisplay">1</span> ⚡<br>
+            <span class="hp-bar">HP: <span id="hpDisplay">100</span> ❤</span>
         </div>
         <canvas id="gameCanvas" width="800" height="450"></canvas>
         <div class="controls">SPACE: Swim/Hop | SHIFT: Super Burst Flight</div>
@@ -61,6 +65,7 @@
     const ctx = canvas.getContext('2d');
     const levelDisplay = document.getElementById('levelDisplay');
     const burstDisplay = document.getElementById('burstDisplay');
+    const hpDisplay = document.getElementById('hpDisplay');
 
     // --- AUDIO ENGINE (Retro Synths) ---
     let audioCtx = null;
@@ -214,6 +219,10 @@
     let frameCount = 0;
     let level = 1;
     let burstCharges = 1;
+    let hp = 100;
+    let maxHp = 100;
+    let waterTime = 0; // Time spent on water
+    let hpGainCooldown = 0; // Cooldown between HP gains
     
     // --- HIGH SCORE SYSTEM ---
     let highScores = [];
@@ -270,6 +279,12 @@
         duck.y = 300;
         duck.dy = 0;
         duck.state = 'ground';
+        
+        // Reset HP to max at start of each level
+        hp = maxHp;
+        hpDisplay.innerText = hp;
+        waterTime = 0;
+        hpGainCooldown = 0;
         
         enemies = [];
         
@@ -379,17 +394,42 @@
                 duck.dy = 0;
                 duck.state = 'water';
                 duck.y += Math.sin(frameCount * 0.1) * 2; 
+                
+                // REWARD SYSTEM: Gain HP for staying on water
+                if (gameState === "PLAYING") {
+                    waterTime++;
+                    
+                    // Every 60 frames (1 second) on water, gain 1 HP
+                    if (waterTime >= 60 && hpGainCooldown <= 0) {
+                        if (hp < maxHp) {
+                            hp = Math.min(hp + 1, maxHp);
+                            hpDisplay.innerText = hp;
+                            // Visual feedback - play a subtle tone
+                            playTone(noteFreqs.E5, 'sine', 0.05, 0.02);
+                        }
+                        waterTime = 0;
+                        hpGainCooldown = 60; // 1 second cooldown
+                    }
+                }
             } else {
                 duck.state = 'air';
+                waterTime = 0; // Reset water time when in air
             }
         } else {
             if (duck.y + duck.h > floorY) {
                 duck.y = floorY - duck.h;
                 duck.dy = 0;
                 duck.state = 'ground';
+                waterTime = 0; // Reset water time on ground
             } else {
                 duck.state = 'air';
+                waterTime = 0; // Reset water time when in air
             }
+        }
+        
+        // Decrement HP gain cooldown
+        if (hpGainCooldown > 0) {
+            hpGainCooldown--;
         }
 
         enemies.forEach(enemy => {
@@ -427,7 +467,21 @@
                     duck.y < enemy.y + enemy.h - 5 &&
                     duck.y + duck.h > enemy.y + 5
                 ) {
-                    gameOver();
+                    // Reduce HP by 25 on collision
+                    hp -= 25;
+                    hpDisplay.innerText = hp;
+                    
+                    // Push duck back to avoid repeated collisions
+                    duck.x -= 50;
+                    if (duck.x < 0) duck.x = 0;
+                    
+                    // Play hit sound
+                    playTone(noteFreqs.C3, 'sawtooth', 0.2, 0.1);
+                    
+                    // Check if HP reached zero
+                    if (hp <= 0) {
+                        gameOver();
+                    }
                 }
             }
         });
