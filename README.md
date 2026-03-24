@@ -12,18 +12,20 @@ This project demonstrates the power of AI-assisted game development. Starting fr
 
 ### Controls
 
-- **SPACE**: Swim/Hop
-- **SHIFT**: Super Burst Flight (uses burst charges)
+- **SPACE** (or tap): Swim/Hop
+- **SHIFT** (or BURST button on mobile): Super Burst Flight (uses burst charges)
 
 ### Gameplay Mechanics
 
 - **Survive** by avoiding sharks and gators as you progress through levels
 - **Stay on water** to regenerate health - gain 10 HP every second while floating
+- **Land on log platforms** floating in the water to take a breather safely
 - **HP persists across levels** - Your health carries over, so manage it wisely
 - **Persistent HP regeneration timer** - Always visible throughout level, pauses when not on water
 - **Timer continues on landing** - HP regen progress resumes when you return to water
 - **Take hits** - You start with 100 HP and lose 25 HP per collision
 - **Reach the right side** of the screen to complete each level and earn burst charges
+- **Enemies get tougher** - Shark speed increases each level; a second shark appears at level 3; gators start jumping at level 2
 - **Compete** for the top 5 high scores
 
 ## Play Off-line
@@ -31,7 +33,7 @@ This project demonstrates the power of AI-assisted game development. Starting fr
 1. **Download** the `index.html` file
 2. **Save** it anywhere on your computer
 3. **Double-click** the file to open it in your web browser
-4. **Play!** Use arrow keys to control the duck and survive
+4. **Play!** Use SPACE to swim/hop and SHIFT for burst flight
 
 No installation, no dependencies, no setup required - just download and play!
 
@@ -44,15 +46,18 @@ No installation, no dependencies, no setup required - just download and play!
 - **Leaderboard display** on game over screen
 - **Health Point (HP) reward system** - Stay on water to regenerate health
 - **Non-instant death** - Get hit up to 4 times before game over
+- **Floating log platforms** - Safe landing spots scattered across the water
+- **Escalating difficulty** - More sharks, faster speeds, and jumping gators as levels increase
+- **Mobile/touch support** - On-screen SWIM and BURST buttons, touch-friendly initials entry
+- **Responsive scaling** - Automatically fits smaller screens and tablets
 - Simple, intuitive controls
-- Survival gameplay mechanics
 - Runs entirely in your browser (no server required)
 
 ## Technical Details
 
 - **Created with**: Google Gemini 3 Pro
 - **Initial Development**: 5 revision rounds of basic prompting with Gemini.
-- **New Features and Updates**: Claude Sonnet 4.5
+- **New Features and Updates**: Claude Sonnet 4.6
 - **Design Source**: Hand-drawn sketch shared with Gemini
 - **Technology**: Pure HTML5 Canvas, JavaScript, and CSS
 - **Requirements**: Any modern web browser
