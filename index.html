@@ -255,7 +255,11 @@
     const HP_GAIN_INTERVAL = 60; // Frames (1 second at 60fps)
     const COLLISION_KNOCKBACK = 50; // Pixels to push back on collision
     const COLLISION_DAMAGE = 25; // HP lost per collision
-    
+    let platforms = [];
+    const PLATFORM_HEIGHT = 10;
+    const PLATFORM_MIN_W = 50;
+    const PLATFORM_MAX_W = 80;
+
     // --- HIGH SCORE SYSTEM ---
     let highScores = [];
     let isNewHighScore = false;
@@ -323,20 +327,49 @@
         hpProgressText.innerText = '1.0s';
         
         enemies = [];
-        
+
+        platforms = [];
+        let platformCount = Math.max(2, 4 - Math.floor(level / 3));
+        let maxPlatW = Math.max(PLATFORM_MIN_W, PLATFORM_MAX_W - Math.floor(level / 2) * 5);
+        let platAttempts = 0;
+        while (platforms.length < platformCount && platAttempts < 50) {
+            platAttempts++;
+            let w = PLATFORM_MIN_W + Math.floor(Math.random() * (maxPlatW - PLATFORM_MIN_W + 1));
+            let x = 180 + Math.floor(Math.random() * (590 - 180 - w));
+            let overlaps = false;
+            for (let i = 0; i < platforms.length; i++) {
+                let p = platforms[i];
+                if (x < p.x + p.w + 30 && x + w > p.x - 30) { overlaps = true; break; }
+            }
+            if (!overlaps) platforms.push({ x: x, y: waterY - PLATFORM_HEIGHT, w: w, h: PLATFORM_HEIGHT });
+        }
+
         let sharkSpeed = 1.0 + (level * 0.2); 
         if (sharkSpeed > 5) sharkSpeed = 5; 
 
         enemies.push({
             type: 'shark',
             x: 300 + Math.random() * 100,
-            y: waterY + 10, 
+            y: waterY + 10,
             w: 40,
             h: 20,
             dx: -sharkSpeed,
             dy: 0,
-            dir: -1 
+            dir: -1
         });
+
+        if (level >= 3) {
+            enemies.push({
+                type: 'shark',
+                x: 450 + Math.random() * 100,
+                y: waterY + 10,
+                w: 40,
+                h: 20,
+                dx: sharkSpeed * 0.85,
+                dy: 0,
+                dir: 1
+            });
+        }
 
         enemies.push({
             type: 'gator',
@@ -412,6 +445,17 @@
             ctx.lineTo(i + 20, waterY + 15 - waveH);
         }
         ctx.stroke();
+
+        // Draw floating log platforms
+        for (let i = 0; i < platforms.length; i++) {
+            let plat = platforms[i];
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(Math.round(plat.x), Math.round(plat.y), plat.w, plat.h);
+            ctx.fillStyle = '#A0522D';
+            ctx.fillRect(Math.round(plat.x + 2), Math.round(plat.y + 2), plat.w - 4, 3);
+            ctx.fillStyle = 'rgba(255,255,255,0.25)';
+            ctx.fillRect(Math.round(plat.x), Math.round(plat.y), plat.w, 2);
+        }
     }
 
     function updatePhysics() {
@@ -424,7 +468,25 @@
             duck.x += duck.dx;
         }
 
-        if (inWaterZone) {
+        let onPlatform = false;
+        for (let i = 0; i < platforms.length; i++) {
+            let plat = platforms[i];
+            if (
+                duck.dy >= 0 &&
+                duck.x + duck.w > plat.x + 4 &&
+                duck.x < plat.x + plat.w - 4 &&
+                duck.y + duck.h >= plat.y &&
+                duck.y + duck.h <= plat.y + plat.h + 8
+            ) {
+                duck.y = plat.y - duck.h;
+                duck.dy = 0;
+                duck.state = 'ground';
+                onPlatform = true;
+                break;
+            }
+        }
+
+        if (inWaterZone && !onPlatform) {
             if (duck.y + duck.h > waterY + 20) {
                 duck.y = waterY + 20 - duck.h;
                 duck.dy = 0;
