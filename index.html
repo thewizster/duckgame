@@ -2,6 +2,7 @@
 <html>
 <head>
     <title>8-Bit Duck Survival</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
         body {
             margin: 0;
@@ -22,6 +23,9 @@
         canvas {
             background-color: #5c94fc;
             display: block;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            touch-action: none;
         }
         #ui {
             position: absolute;
@@ -67,6 +71,66 @@
             opacity: 0.8;
             pointer-events: none;
         }
+        .touch-btn {
+            position: absolute;
+            background: rgba(255,255,255,0.15);
+            border: 3px solid rgba(255,255,255,0.45);
+            color: white;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 15px;
+            font-weight: bold;
+            text-shadow: 1px 1px 0 #000;
+            border-radius: 10px;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+            display: none;
+        }
+        #jumpBtn {
+            bottom: 35px;
+            left: 15px;
+            width: 130px;
+            height: 80px;
+        }
+        #burstBtn {
+            bottom: 35px;
+            right: 15px;
+            width: 130px;
+            height: 80px;
+        }
+        #initialsControls {
+            position: absolute;
+            bottom: 18px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+        .initials-row {
+            display: flex;
+            gap: 5px;
+        }
+        .initials-btn {
+            background: rgba(255,255,255,0.2);
+            border: 2px solid rgba(255,255,255,0.5);
+            color: white;
+            font-size: 22px;
+            width: 65px;
+            height: 55px;
+            cursor: pointer;
+            border-radius: 6px;
+            font-family: 'Courier New', Courier, monospace;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+            text-shadow: 1px 1px 0 #000;
+        }
+        @media (pointer: coarse) {
+            .controls { display: none; }
+        }
     </style>
 </head>
 <body>
@@ -85,6 +149,21 @@
         </div>
         <canvas id="gameCanvas" width="800" height="450"></canvas>
         <div class="controls">SPACE: Swim/Hop | SHIFT: Super Burst Flight</div>
+        <button id="jumpBtn" class="touch-btn">SWIM / HOP</button>
+        <button id="burstBtn" class="touch-btn">BURST ⚡</button>
+        <div id="initialsControls">
+            <div class="initials-row">
+                <button class="initials-btn" id="iBtnUp">▲</button>
+            </div>
+            <div class="initials-row">
+                <button class="initials-btn" id="iBtnLeft">◀</button>
+                <button class="initials-btn" id="iBtnOk">OK</button>
+                <button class="initials-btn" id="iBtnRight">▶</button>
+            </div>
+            <div class="initials-row">
+                <button class="initials-btn" id="iBtnDown">▼</button>
+            </div>
+        </div>
     </div>
 
 <script>
@@ -96,6 +175,83 @@
     const hpProgressText = document.getElementById('hpProgressText');
     const hpProgressFill = document.getElementById('hpProgressFill');
     const hpProgressContainer = document.getElementById('hpProgressContainer');
+    const gameContainer = document.getElementById('gameContainer');
+    const jumpBtn = document.getElementById('jumpBtn');
+    const burstBtn = document.getElementById('burstBtn');
+    const initialsControls = document.getElementById('initialsControls');
+
+    const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+
+    // Scale game container to fit screen (needed on small/tablet screens)
+    function resizeGame() {
+        const scale = Math.min(window.innerWidth / 808, window.innerHeight / 458, 1);
+        if (scale < 1) {
+            const offsetX = (window.innerWidth - 808 * scale) / 2;
+            const offsetY = (window.innerHeight - 458 * scale) / 2;
+            gameContainer.style.position = 'fixed';
+            gameContainer.style.transformOrigin = '0 0';
+            gameContainer.style.transform = 'scale(' + scale + ')';
+            gameContainer.style.left = offsetX + 'px';
+            gameContainer.style.top = offsetY + 'px';
+        }
+    }
+    window.addEventListener('resize', resizeGame);
+    resizeGame();
+
+    // Show/hide touch UI elements based on game state
+    function updateTouchUI() {
+        if (!isTouchDevice) return;
+        jumpBtn.style.display = (gameState === 'PLAYING') ? 'block' : 'none';
+        burstBtn.style.display = (gameState === 'PLAYING') ? 'block' : 'none';
+        initialsControls.style.display = (gameState === 'ENTER_INITIALS') ? 'flex' : 'none';
+    }
+
+    // Touch events for canvas (tap = jump / start / restart)
+    canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if (gameState === 'GAMEOVER') { location.reload(); return; }
+        handleJump();
+    }, { passive: false });
+
+    jumpBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        handleJump();
+    }, { passive: false });
+
+    burstBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        handleBurst();
+    }, { passive: false });
+
+    // Touch handler for initials entry
+    function handleInitialKey(key) {
+        if (gameState !== 'ENTER_INITIALS') return;
+        const currentChar = playerInitials[currentInitialIndex];
+        const charIndex = ALPHABET.indexOf(currentChar);
+        if (key === 'ArrowUp') {
+            playerInitials[currentInitialIndex] = ALPHABET[(charIndex + 1) % ALPHABET.length];
+            playTone(noteFreqs.C5, 'square', 0.05, 0.05);
+        } else if (key === 'ArrowDown') {
+            playerInitials[currentInitialIndex] = ALPHABET[(charIndex - 1 + ALPHABET.length) % ALPHABET.length];
+            playTone(noteFreqs.C5, 'square', 0.05, 0.05);
+        } else if (key === 'ArrowLeft') {
+            currentInitialIndex = Math.max(0, currentInitialIndex - 1);
+            playTone(noteFreqs.E5, 'square', 0.05, 0.05);
+        } else if (key === 'ArrowRight') {
+            currentInitialIndex = Math.min(2, currentInitialIndex + 1);
+            playTone(noteFreqs.E5, 'square', 0.05, 0.05);
+        } else if (key === 'Enter') {
+            addHighScore(playerInitials, level);
+            sfxWin();
+            gameState = 'GAMEOVER';
+        }
+    }
+
+    document.getElementById('iBtnUp').addEventListener('touchstart', (e) => { e.preventDefault(); handleInitialKey('ArrowUp'); }, { passive: false });
+    document.getElementById('iBtnDown').addEventListener('touchstart', (e) => { e.preventDefault(); handleInitialKey('ArrowDown'); }, { passive: false });
+    document.getElementById('iBtnLeft').addEventListener('touchstart', (e) => { e.preventDefault(); handleInitialKey('ArrowLeft'); }, { passive: false });
+    document.getElementById('iBtnRight').addEventListener('touchstart', (e) => { e.preventDefault(); handleInitialKey('ArrowRight'); }, { passive: false });
+    document.getElementById('iBtnOk').addEventListener('touchstart', (e) => { e.preventDefault(); handleInitialKey('Enter'); }, { passive: false });
 
     // --- AUDIO ENGINE (Retro Synths) ---
     let audioCtx = null;
@@ -740,6 +896,7 @@
     }
 
     function draw() {
+        updateTouchUI();
         drawEnvironment();
 
         enemies.forEach(enemy => {
@@ -761,7 +918,7 @@
             ctx.font = "40px Courier New";
             ctx.fillText("8-BIT DUCK SURVIVAL", canvas.width/2, 180);
             ctx.font = "20px Courier New";
-            ctx.fillText("Press SPACE to Start", canvas.width/2, 230);
+            ctx.fillText(isTouchDevice ? "Tap to Start" : "Press SPACE to Start", canvas.width/2, 230);
             ctx.font = "14px Courier New";
             ctx.fillStyle = "yellow";
             ctx.fillText("(Sound Enabled)", canvas.width/2, 260);
@@ -783,7 +940,7 @@
             
             ctx.font = "16px Courier New";
             ctx.fillStyle = "#aaa";
-            ctx.fillText("Reload page to restart", canvas.width/2, 400);
+            ctx.fillText(isTouchDevice ? "Tap to Restart" : "Reload page to restart", canvas.width/2, 400);
         }
         else if (gameState === "WIN") {
             ctx.font = "40px Courier New";
