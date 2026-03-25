@@ -1,1040 +1,644 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>8-Bit Duck Survival</title>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Duck Run: Endless</title>
     <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
-            margin: 0;
-            background-color: #202020;
+            background: #1a1a2e;
             display: flex;
-            justify-content: center;
+            flex-direction: column;
             align-items: center;
-            height: 100vh;
+            justify-content: center;
+            min-height: 100vh;
             font-family: 'Courier New', Courier, monospace;
             overflow: hidden;
             user-select: none;
         }
+
         #gameContainer {
             position: relative;
-            box-shadow: 0 0 40px rgba(0,0,0,0.8);
-            border: 4px solid #fff;
+            box-shadow: 0 0 60px rgba(80, 120, 255, 0.4);
         }
+
         canvas {
-            background-color: #5c94fc;
             display: block;
+            border: 3px solid #ffffff;
             image-rendering: pixelated;
             image-rendering: crisp-edges;
             touch-action: none;
         }
-        #ui {
+
+        /* ── HUD overlay ── */
+        #hud {
             position: absolute;
-            top: 10px;
-            left: 10px;
-            color: white;
-            font-size: 20px;
-            text-shadow: 2px 2px 0 #000;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
             pointer-events: none;
-        }
-        .hp-bar {
-            color: #ff6666;
-        }
-        .hp-progress {
-            position: absolute;
-            top: 95px;
-            left: 10px;
-            color: #88ddff;
-            font-size: 14px;
-            text-shadow: 1px 1px 0 #000;
-            pointer-events: none;
-        }
-        .hp-progress-bar {
-            width: 100px;
-            height: 8px;
-            background-color: rgba(255,255,255,0.2);
-            border: 1px solid rgba(255,255,255,0.4);
-            margin-top: 2px;
-        }
-        .hp-progress-fill {
-            height: 100%;
-            background-color: #88ddff;
-            transition: width 0.1s linear;
-        }
-        .controls {
-            position: absolute;
-            bottom: 10px;
-            width: 100%;
-            text-align: center;
-            color: white;
-            font-size: 14px;
-            text-shadow: 1px 1px 0 #000;
-            opacity: 0.8;
-            pointer-events: none;
-        }
-        .touch-btn {
-            position: absolute;
-            background: rgba(255,255,255,0.15);
-            border: 3px solid rgba(255,255,255,0.45);
-            color: white;
-            font-family: 'Courier New', Courier, monospace;
-            font-size: 15px;
-            font-weight: bold;
-            text-shadow: 1px 1px 0 #000;
-            border-radius: 10px;
-            cursor: pointer;
-            user-select: none;
-            -webkit-user-select: none;
-            -webkit-tap-highlight-color: transparent;
-            touch-action: manipulation;
             display: none;
         }
-        #jumpBtn {
-            bottom: 35px;
-            left: 15px;
-            width: 130px;
-            height: 80px;
-        }
-        #burstBtn {
-            bottom: 35px;
-            right: 15px;
-            width: 130px;
-            height: 80px;
-        }
-        #initialsControls {
+
+        #hudTopLeft {
             position: absolute;
-            bottom: 18px;
+            top: 8px; left: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        #hpBarOuter {
+            width: 130px;
+            height: 13px;
+            background: rgba(0,0,0,0.55);
+            border: 1px solid rgba(255,255,255,0.5);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        #hpBarInner {
+            height: 100%;
+            width: 100%;
+            background: #2ecc71;
+            transition: width 0.12s linear, background 0.2s;
+        }
+
+        #burstDisplay {
+            color: #ffe066;
+            font-size: 13px;
+            text-shadow: 1px 1px 0 #000;
+            letter-spacing: 2px;
+            min-height: 16px;
+        }
+
+        #upgradeIcons {
+            color: #aaddff;
+            font-size: 11px;
+            text-shadow: 1px 1px 0 #000;
+            max-width: 140px;
+            line-height: 1.4;
+        }
+
+        #hudTopCenter {
+            position: absolute;
+            top: 8px;
             left: 50%;
             transform: translateX(-50%);
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            gap: 5px;
+            text-align: center;
         }
-        .initials-row {
-            display: flex;
-            gap: 5px;
-        }
-        .initials-btn {
-            background: rgba(255,255,255,0.2);
-            border: 2px solid rgba(255,255,255,0.5);
-            color: white;
+
+        #distanceDisplay {
+            color: #ffffff;
             font-size: 22px;
-            width: 65px;
-            height: 55px;
-            cursor: pointer;
-            border-radius: 6px;
-            font-family: 'Courier New', Courier, monospace;
-            -webkit-tap-highlight-color: transparent;
-            touch-action: manipulation;
+            font-weight: bold;
+            text-shadow: 2px 2px 0 #000000, -1px -1px 0 #000;
+            letter-spacing: 2px;
+        }
+
+        #biomeDisplay {
+            color: #cccccc;
+            font-size: 11px;
+            text-shadow: 1px 1px 0 #000;
+            letter-spacing: 1px;
+            margin-top: 2px;
+        }
+
+        #hudTopRight {
+            position: absolute;
+            top: 8px; right: 10px;
+            text-align: right;
+        }
+
+        #fishDisplay {
+            color: #ffe066;
+            font-size: 14px;
             text-shadow: 1px 1px 0 #000;
         }
+
+        #killDisplay {
+            color: #ff9999;
+            font-size: 12px;
+            text-shadow: 1px 1px 0 #000;
+            margin-top: 3px;
+        }
+
+        /* ── Touch buttons ── */
+        #touchControls {
+            position: absolute;
+            bottom: 0; left: 0;
+            width: 100%; height: 110px;
+            pointer-events: auto;
+            display: none;
+        }
+
+        .touch-btn {
+            position: absolute;
+            bottom: 18px;
+            width: 140px;
+            height: 80px;
+            background: rgba(255,255,255,0.13);
+            border: 2px solid rgba(255,255,255,0.4);
+            border-radius: 12px;
+            color: #ffffff;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            font-weight: bold;
+            text-shadow: 1px 1px 0 #000;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+
+        #jumpBtn  { left: 12px; }
+        #burstBtn { right: 12px; }
+
         @media (pointer: coarse) {
-            .controls { display: none; }
+            #touchControls { display: block; }
         }
     </style>
 </head>
 <body>
+<div id="gameContainer">
+    <canvas id="gameCanvas" width="800" height="500"></canvas>
 
-    <div id="gameContainer">
-        <div id="ui">
-            LEVEL: <span id="levelDisplay">1</span><br>
-            BURSTS: <span id="burstDisplay">1</span> ⚡<br>
-            <span class="hp-bar">HP: <span id="hpDisplay">100</span> ❤</span>
+    <div id="hud">
+        <div id="hudTopLeft">
+            <div id="hpBarOuter"><div id="hpBarInner"></div></div>
+            <div id="burstDisplay"></div>
+            <div id="upgradeIcons"></div>
         </div>
-        <div id="hpProgressContainer" class="hp-progress">
-            <div style="margin-bottom: 2px;">HP Regen: <span id="hpProgressText">0.0s</span></div>
-            <div class="hp-progress-bar">
-                <div id="hpProgressFill" class="hp-progress-fill" style="width: 0%;"></div>
-            </div>
+        <div id="hudTopCenter">
+            <div id="distanceDisplay">0m</div>
+            <div id="biomeDisplay"></div>
         </div>
-        <canvas id="gameCanvas" width="800" height="450"></canvas>
-        <div class="controls">SPACE: Swim/Hop | SHIFT: Super Burst Flight</div>
-        <button id="jumpBtn" class="touch-btn">SWIM / HOP</button>
-        <button id="burstBtn" class="touch-btn">BURST ⚡</button>
-        <div id="initialsControls">
-            <div class="initials-row">
-                <button class="initials-btn" id="iBtnUp">▲</button>
-            </div>
-            <div class="initials-row">
-                <button class="initials-btn" id="iBtnLeft">◀</button>
-                <button class="initials-btn" id="iBtnOk">OK</button>
-                <button class="initials-btn" id="iBtnRight">▶</button>
-            </div>
-            <div class="initials-row">
-                <button class="initials-btn" id="iBtnDown">▼</button>
-            </div>
+        <div id="hudTopRight">
+            <div id="fishDisplay">&#x1F41F; 0</div>
+            <div id="killDisplay">&#x1F480; 0</div>
         </div>
     </div>
 
+    <div id="touchControls">
+        <button class="touch-btn" id="jumpBtn">SWIM / HOP</button>
+        <button class="touch-btn" id="burstBtn">&#x26A1; BURST</button>
+    </div>
+</div>
+
 <script>
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
-    const levelDisplay = document.getElementById('levelDisplay');
-    const burstDisplay = document.getElementById('burstDisplay');
-    const hpDisplay = document.getElementById('hpDisplay');
-    const hpProgressText = document.getElementById('hpProgressText');
-    const hpProgressFill = document.getElementById('hpProgressFill');
-    const hpProgressContainer = document.getElementById('hpProgressContainer');
-    const gameContainer = document.getElementById('gameContainer');
-    const jumpBtn = document.getElementById('jumpBtn');
-    const burstBtn = document.getElementById('burstBtn');
-    const initialsControls = document.getElementById('initialsControls');
+'use strict';
 
-    const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+// ==================== CANVAS SETUP ====================
+const canvas = document.getElementById('gameCanvas');
+const ctx    = canvas.getContext('2d');
+const W = 800, H = 500;
 
-    // Scale game container to fit screen (needed on small/tablet screens)
-    function resizeGame() {
-        const scale = Math.min(window.innerWidth / 808, window.innerHeight / 458, 1);
-        if (scale < 1) {
-            const offsetX = (window.innerWidth - 808 * scale) / 2;
-            const offsetY = (window.innerHeight - 458 * scale) / 2;
-            gameContainer.style.position = 'fixed';
-            gameContainer.style.transformOrigin = '0 0';
-            gameContainer.style.transform = 'scale(' + scale + ')';
-            gameContainer.style.left = offsetX + 'px';
-            gameContainer.style.top = offsetY + 'px';
-        }
-    }
-    window.addEventListener('resize', resizeGame);
-    resizeGame();
+// ==================== AUDIO ENGINE ====================
+let audioCtx       = null;
+let musicInterval  = null;
+let isMusicPlaying = false;
+let musicStep      = 0;
+let currentMusicBiome = -1;
 
-    // Show/hide touch UI elements based on game state
-    function updateTouchUI() {
-        if (!isTouchDevice) return;
-        jumpBtn.style.display = (gameState === 'PLAYING') ? 'block' : 'none';
-        burstBtn.style.display = (gameState === 'PLAYING') ? 'block' : 'none';
-        initialsControls.style.display = (gameState === 'ENTER_INITIALS') ? 'flex' : 'none';
-    }
+function initAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
 
-    // Touch events for canvas (tap = jump / start / restart)
-    canvas.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        if (gameState === 'GAMEOVER') { location.reload(); return; }
-        handleJump();
-    }, { passive: false });
-
-    jumpBtn.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        handleJump();
-    }, { passive: false });
-
-    burstBtn.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        handleBurst();
-    }, { passive: false });
-
-    // Touch handler for initials entry
-    function handleInitialKey(key) {
-        if (gameState !== 'ENTER_INITIALS') return;
-        const currentChar = playerInitials[currentInitialIndex];
-        const charIndex = ALPHABET.indexOf(currentChar);
-        if (key === 'ArrowUp') {
-            playerInitials[currentInitialIndex] = ALPHABET[(charIndex + 1) % ALPHABET.length];
-            playTone(noteFreqs.C5, 'square', 0.05, 0.05);
-        } else if (key === 'ArrowDown') {
-            playerInitials[currentInitialIndex] = ALPHABET[(charIndex - 1 + ALPHABET.length) % ALPHABET.length];
-            playTone(noteFreqs.C5, 'square', 0.05, 0.05);
-        } else if (key === 'ArrowLeft') {
-            currentInitialIndex = Math.max(0, currentInitialIndex - 1);
-            playTone(noteFreqs.E5, 'square', 0.05, 0.05);
-        } else if (key === 'ArrowRight') {
-            currentInitialIndex = Math.min(2, currentInitialIndex + 1);
-            playTone(noteFreqs.E5, 'square', 0.05, 0.05);
-        } else if (key === 'Enter') {
-            addHighScore(playerInitials, level);
-            sfxWin();
-            gameState = 'GAMEOVER';
-        }
-    }
-
-    document.getElementById('iBtnUp').addEventListener('touchstart', (e) => { e.preventDefault(); handleInitialKey('ArrowUp'); }, { passive: false });
-    document.getElementById('iBtnDown').addEventListener('touchstart', (e) => { e.preventDefault(); handleInitialKey('ArrowDown'); }, { passive: false });
-    document.getElementById('iBtnLeft').addEventListener('touchstart', (e) => { e.preventDefault(); handleInitialKey('ArrowLeft'); }, { passive: false });
-    document.getElementById('iBtnRight').addEventListener('touchstart', (e) => { e.preventDefault(); handleInitialKey('ArrowRight'); }, { passive: false });
-    document.getElementById('iBtnOk').addEventListener('touchstart', (e) => { e.preventDefault(); handleInitialKey('Enter'); }, { passive: false });
-
-    // --- AUDIO ENGINE (Retro Synths) ---
-    let audioCtx = null;
-    let musicInterval = null;
-    let isMusicPlaying = false;
-
-    // FIXED: Added missing high notes (D5, etc) to prevent crashes
-    const noteFreqs = {
-        C3: 130.81, D3: 146.83, E3: 164.81, F3: 174.61, G3: 196.00, A3: 220.00, B3: 246.94,
-        C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.00, A4: 440.00, B4: 493.88,
-        C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99
-    };
-
-    function initAudio() {
-        if (!audioCtx) {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        if (audioCtx.state === 'suspended') {
-            audioCtx.resume();
-        }
-        if (!isMusicPlaying) {
-            startBackgroundMusic();
-        }
-    }
-
-    function playTone(freq, type, duration, volume = 0.1) {
-        if (!audioCtx) return;
-        if (!freq) return; // Safety check: don't crash if note is missing
-
-        const osc = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        
-        osc.type = type; 
-        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        
-        // Smooth envelope to avoid clicking sounds
-        gainNode.gain.setValueAtTime(volume, audioCtx.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
-
-        osc.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + duration);
-    }
-
-    function sfxJump() {
-        if (!audioCtx) return;
-        const osc = audioCtx.createOscillator();
+function playTone(freq, type, vol, dur, delay) {
+    if (!audioCtx) return;
+    delay = delay || 0;
+    try {
+        const osc  = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(150, audioCtx.currentTime);
-        osc.frequency.linearRampToValueAtTime(300, audioCtx.currentTime + 0.1);
-        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.1);
-    }
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime + delay);
+        gain.gain.setValueAtTime(vol, audioCtx.currentTime + delay);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + delay + dur);
+        osc.start(audioCtx.currentTime + delay);
+        osc.stop(audioCtx.currentTime + delay + dur + 0.05);
+    } catch(e) {}
+}
 
-    function sfxBurst() {
-        if (!audioCtx) return;
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(200, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.3);
-        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.3);
-    }
+// Note frequency table
+const N = {
+    C3:131,  D3:147,  E3:165,  F3:175,  G3:196,  A3:220,  B3:247,
+    C4:262,  D4:294,  E4:330,  F4:349,  G4:392,  A4:440,  B4:494,
+    C5:523,  D5:587,  E5:659,  F5:698,  G5:784,  A5:880,  B5:988,
+    C6:1047, D6:1175, E6:1319,
+    Eb4:311, Bb3:233, Bb4:466, Ab3:208, Ab4:415, F3s:185, Eb3:156
+};
 
-    function sfxDie() {
-        if (!audioCtx) return;
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(400, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.5);
-        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.5);
-        stopMusic();
-    }
+// Per-biome music: { seq:[frequencies], tempo:ms }
+const BIOME_MUSIC = [
+    // 0: Ocean Shore — C major, bright
+    { seq:[N.C4,N.E4,N.G4,N.E4, N.C5,N.G4,N.E4,N.C4, N.D4,N.F4,N.A4,N.F4, N.D5,N.A4,N.F4,N.D4], tempo:140 },
+    // 1: Deep Swamp — A minor pentatonic, eerie
+    { seq:[N.A3,N.C4,N.D4,N.E4, N.A3,N.G3,N.E3,N.A3, N.C4,N.E4,N.D4,N.A3, N.G3,N.A3,N.E3,N.C4], tempo:180 },
+    // 2: Arctic — C major suspended, cool
+    { seq:[N.C4,N.G4,N.C5,N.G4, N.D4,N.G4,N.C5,N.D4, N.E4,N.G4,N.C5,N.E4, N.C4,N.G4,N.D4,N.C4], tempo:160 },
+    // 3: Volcanic — diminished, tense
+    { seq:[N.C4,N.Eb4,N.F3s,N.A3, N.C4,N.Eb4,N.F3s,N.C4, N.A3,N.F3s,N.Eb4,N.C4, N.Bb3,N.Ab3,N.Bb3,N.C4], tempo:120 },
+    // 4: Sky Kingdom — major 7th arpeggios, ethereal
+    { seq:[N.C5,N.E5,N.G5,N.B4, N.C5,N.G5,N.E5,N.C5, N.D5,N.E5,N.G5,N.C5, N.G4,N.C5,N.E5,N.G5], tempo:130 }
+];
 
-    function sfxWin() {
-        if (!audioCtx) return;
-        let now = audioCtx.currentTime;
-        [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = 'square';
-            osc.frequency.value = freq;
-            gain.gain.setValueAtTime(0.1, now + i*0.1);
-            gain.gain.linearRampToValueAtTime(0, now + i*0.1 + 0.1);
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.start(now + i*0.1);
-            osc.stop(now + i*0.1 + 0.1);
-        });
-    }
-
-    function startBackgroundMusic() {
-        if (isMusicPlaying) return;
-        isMusicPlaying = true;
-        
-        let noteIndex = 0;
-        const melody = [
-            'C4', 'E4', 'G4', 'C5', 'G4', 'E4', 'C4', 'P',
-            'D4', 'F4', 'A4', 'D5', 'A4', 'F4', 'D4', 'P',
-            'E4', 'G4', 'B4', 'E5', 'B4', 'G4', 'E4', 'P',
-            'G3', 'B3', 'D4', 'G4', 'D4', 'B3', 'G3', 'P' 
-        ];
-
-        musicInterval = setInterval(() => {
-            // Only play music if game is actually in PLAYING state
-            if (gameState !== "PLAYING") return;
-            
-            let note = melody[noteIndex];
-            if (note !== 'P') { 
-                // Main Melody
-                playTone(noteFreqs[note], 'square', 0.1, 0.03); 
-                
-                // Bassline (Simple 1-5 pattern)
-                if (noteIndex % 4 === 0) {
-                    // If freq exists, play bass an octave lower
-                    if (noteFreqs[note]) {
-                        playTone(noteFreqs[note] / 2, 'triangle', 0.2, 0.05);
-                    }
-                }
-            }
-            
-            noteIndex = (noteIndex + 1) % melody.length;
-        }, 150); // Tempo (150ms per note)
-    }
-
-    function stopMusic() {
-        isMusicPlaying = false;
-        if (musicInterval) clearInterval(musicInterval);
-    }
-
-
-    // --- GAME LOGIC ---
-    let gameState = "START"; 
-    let frameCount = 0;
-    let level = 1;
-    let burstCharges = 1;
-    let hp = 100;
-    let maxHp = 100;
-    let waterTime = 0; // Time spent on water
-    const HP_GAIN_INTERVAL = 60; // Frames (1 second at 60fps)
-    const COLLISION_KNOCKBACK = 50; // Pixels to push back on collision
-    const COLLISION_DAMAGE = 25; // HP lost per collision
-    let platforms = [];
-    const PLATFORM_HEIGHT = 10;
-    const PLATFORM_MIN_W = 50;
-    const PLATFORM_MAX_W = 80;
-
-    // --- HIGH SCORE SYSTEM ---
-    let highScores = [];
-    let isNewHighScore = false;
-    let playerInitials = ['A', 'A', 'A'];
-    let currentInitialIndex = 0;
-    const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    
-    function loadHighScores() {
-        const saved = localStorage.getItem('duckGameHighScores');
-        if (saved) {
-            highScores = JSON.parse(saved);
+function startMusic(biomeIdx) {
+    if (musicInterval) { clearInterval(musicInterval); musicInterval = null; }
+    if (biomeIdx === currentMusicBiome && isMusicPlaying) return;
+    currentMusicBiome = biomeIdx;
+    isMusicPlaying    = true;
+    musicStep         = 0;
+    const entry = BIOME_MUSIC[biomeIdx] || BIOME_MUSIC[0];
+    const seq   = entry.seq;
+    const tempo = entry.tempo;
+    musicInterval = setInterval(function() {
+        if (!isMusicPlaying || !audioCtx) return;
+        const note = seq[musicStep % seq.length];
+        if (note) {
+            playTone(note, 'square', 0.07, (tempo / 1000) * 0.75);
+            if (musicStep % 4 === 0) playTone(note / 2, 'triangle', 0.05, (tempo / 1000) * 1.4);
         }
+        musicStep++;
+    }, tempo);
+}
+
+function stopMusic() {
+    isMusicPlaying = false;
+    if (musicInterval) { clearInterval(musicInterval); musicInterval = null; }
+    currentMusicBiome = -1;
+}
+
+// ── Sound Effects ──
+function sfxJump()     { playTone(260,'square',  0.10,0.08); setTimeout(function(){ playTone(360,'square',0.07,0.07); }, 70); }
+function sfxBurst()    { playTone(200,'sawtooth',0.14,0.07); setTimeout(function(){ playTone(550,'sawtooth',0.09,0.12); }, 50); }
+function sfxHit()      { playTone(140,'sawtooth',0.16,0.18); playTone(80,'sawtooth',0.10,0.25); }
+function sfxDie()      { [380,280,200,130,90].forEach(function(f,i){ playTone(f,'sawtooth',0.11,0.14,i*0.11); }); }
+function sfxCollect()  { playTone(900,'sine',    0.09,0.06); setTimeout(function(){ playTone(1200,'sine',0.07,0.07); }, 55); }
+function sfxUpgrade()  { [N.C5,N.E5,N.G5,N.C6].forEach(function(f,i){ playTone(f,'square',0.09,0.11,i*0.09); }); }
+function sfxBiome()    { [N.G4,N.C5,N.E5,N.G5].forEach(function(f,i){ playTone(f,'square',0.11,0.14,i*0.10); }); }
+function sfxKill()     { playTone(600,'square',  0.08,0.05); setTimeout(function(){ playTone(400,'square',0.07,0.06); }, 55); }
+function sfxHpRegen()  { playTone(520,'sine',    0.05,0.09); }
+function sfxBossAlert(){ [N.C4,N.G3,N.C4,N.G3].forEach(function(f,i){ playTone(f,'sawtooth',0.14,0.18,i*0.18); }); }
+
+// ==================== CONSTANTS ====================
+const DUCK_SCREEN_X     = 150;
+const GRAVITY           = 0.45;
+const MAX_FALL          = 12;
+const JUMP_POWER        = -8;
+const BURST_POWER       = -14;
+const SWIM_POWER        = -6;
+const BASE_SPEED        = 2.5;
+const MAX_SPEED         = 6.0;
+const SPEED_ACCEL       = 0.00028;
+const HIT_DAMAGE        = 25;
+const HIT_INV_FRAMES    = 80;
+const WATER_SURFACE_Y   = 330;
+const LAVA_SURFACE_Y    = 370;
+const ICE_FLOOR_Y       = 400;
+const HP_REGEN_INTERVAL = 60;
+const HP_REGEN_AMOUNT   = 8;
+const UPGRADE_EVERY_PX  = 6000;
+const CULL_BEHIND       = 400;
+const GEN_AHEAD         = 950;
+
+// ==================== BIOME DEFINITIONS ====================
+const BIOMES = [
+    {
+        name:         'Ocean Shore',
+        startDist:    0,
+        skyTop:       '#2a6fc9',
+        skyBot:       '#5c9fec',
+        floorType:    'water',
+        floorY:       WATER_SURFACE_Y,
+        waterColor:   'rgba(20,80,180,0.65)',
+        waterSurface: '#5ab4ff',
+        platColor:    '#8B4513',
+        platTop:      '#a0622a',
+        musicIdx:     0,
+        particle:     'spray',
+        enemies:      ['shark','gator','seagull']
+    },
+    {
+        name:         'Deep Swamp',
+        startDist:    1500,
+        skyTop:       '#0d2208',
+        skyBot:       '#1f4010',
+        floorType:    'swamp',
+        floorY:       WATER_SURFACE_Y,
+        waterColor:   'rgba(30,65,10,0.78)',
+        waterSurface: '#3d6614',
+        platColor:    '#4a3418',
+        platTop:      '#6a4e28',
+        musicIdx:     1,
+        particle:     'bubble',
+        enemies:      ['eel','pufferfish','gator','seagull']
+    },
+    {
+        name:         'Arctic Tundra',
+        startDist:    3000,
+        skyTop:       '#304878',
+        skyBot:       '#7aaad8',
+        floorType:    'ice',
+        floorY:       ICE_FLOOR_Y,
+        waterColor:   'rgba(160,210,255,0.45)',
+        waterSurface: '#c8e8ff',
+        platColor:    '#90c8f0',
+        platTop:      '#c0e4ff',
+        musicIdx:     2,
+        particle:     'snow',
+        enemies:      ['walrus','seagull','shark']
+    },
+    {
+        name:         'Volcanic Waste',
+        startDist:    4500,
+        skyTop:       '#1a0400',
+        skyBot:       '#4a1000',
+        floorType:    'lava',
+        floorY:       LAVA_SURFACE_Y,
+        waterColor:   'rgba(255,60,0,0.75)',
+        waterSurface: '#ff7700',
+        platColor:    '#3a1e08',
+        platTop:      '#5a2e10',
+        musicIdx:     3,
+        particle:     'ember',
+        enemies:      ['crab','salamander','seagull']
+    },
+    {
+        name:         'Sky Kingdom',
+        startDist:    6000,
+        skyTop:       '#0a0520',
+        skyBot:       '#1e0c50',
+        floorType:    'void',
+        floorY:       9999,
+        waterColor:   'rgba(100,50,200,0.30)',
+        waterSurface: '#8860ff',
+        platColor:    '#d0d0ff',
+        platTop:      '#f0f0ff',
+        musicIdx:     4,
+        particle:     'wisp',
+        enemies:      ['seagull','walrus','pufferfish']
     }
-    
-    function saveHighScores() {
-        localStorage.setItem('duckGameHighScores', JSON.stringify(highScores));
+];
+
+// ==================== UPGRADE DEFINITIONS ====================
+const UPGRADE_DEFS = [
+    { id:'double_jump',    name:'Double Jump',    desc:'Jump once more in midair',           icon:'\u2191\u2191', color:'#3498db' },
+    { id:'shield',         name:'Bubble Shield',  desc:'Absorb one hit, then recharges',     icon:'\u25EF',       color:'#1abc9c' },
+    { id:'speed_boost',    name:'Tailwind',       desc:'+0.5 max speed',                     icon:'>>',           color:'#e67e22' },
+    { id:'hp_regen',       name:'Healing Waters', desc:'2x HP regen while in water',         icon:'~+',           color:'#2980b9' },
+    { id:'extra_burst',    name:'Power Feathers', desc:'+1 burst charge',                    icon:'+E',           color:'#f1c40f' },
+    { id:'magnet',         name:'Fish Magnet',    desc:'Auto-collect fish within 120px',     icon:'())',          color:'#9b59b6' },
+    { id:'damage_return',  name:'Spike Feathers', desc:'Burst kills refund 1 burst charge',  icon:'><',           color:'#e74c3c' },
+    { id:'extended_burst', name:'Soaring Wings',  desc:'Burst power +3',                     icon:'/\\',          color:'#16a085' },
+    { id:'wider_plat',     name:'Sea Legs',       desc:'Platforms appear wider',             icon:'___',          color:'#8e44ad' },
+    { id:'hp_up',          name:'Hearty Duck',    desc:'+25 max HP and restore 25 HP',       icon:'<3',           color:'#c0392b' }
+];
+
+// ==================== ACHIEVEMENT DEFINITIONS ====================
+const ACHIEVEMENT_DEFS = [
+    { id:'first_run',      name:'First Splash',   desc:'Complete your first run'               },
+    { id:'dist_500',       name:'Half Mile',       desc:'Reach 500m in one run'                 },
+    { id:'dist_2000',      name:'Marathon Duck',   desc:'Reach 2000m in one run'                },
+    { id:'reach_swamp',    name:'Swamp Things',    desc:'Enter the Deep Swamp'                  },
+    { id:'reach_arctic',   name:'Frostbite',       desc:'Enter the Arctic Tundra'               },
+    { id:'reach_volcanic', name:'Hot Feet',        desc:'Enter the Volcanic Wasteland'          },
+    { id:'reach_sky',      name:'Sky Duck',        desc:'Enter the Sky Kingdom'                 },
+    { id:'kills_10',       name:'Bully',           desc:'Defeat 10 enemies in one run'          },
+    { id:'upgrade_3',      name:'Power Up',        desc:'Take 3 upgrades in one run'            },
+    { id:'no_hit_500',     name:'Untouchable',     desc:'Reach 500m without taking damage'      }
+];
+
+// ==================== STARTING ABILITY POOL ====================
+const ABILITY_POOL = [
+    {
+        name:'Standard Duck',
+        desc:'Start with +1 extra burst charge',
+        apply:function() { duck.burstCharges += 1; }
+    },
+    {
+        name:'Tough Duck',
+        desc:'+25 max HP. Take only 15 damage per hit',
+        apply:function() { duck.maxHp += 25; duck.hp += 25; activeUpgrades.push('tough'); }
+    },
+    {
+        name:'Swift Duck',
+        desc:'+0.8 base speed, slightly lower gravity',
+        apply:function() { duck.speed = BASE_SPEED + 0.8; duck.swiftMode = true; }
+    },
+    {
+        name:'Water Duck',
+        desc:'Start with Healing Waters upgrade active',
+        apply:function() { activeUpgrades.push('hp_regen'); }
+    },
+    {
+        name:'Storm Duck',
+        desc:'Start with 3 burst charges',
+        apply:function() { duck.burstCharges = 3; }
     }
-    
-    function isTopScore(level) {
-        if (highScores.length < 5) return true;
-        return level > highScores[highScores.length - 1].level;
+];
+
+// ==================== META-PROGRESSION ====================
+const META_KEY = 'duckrun_meta';
+
+function loadMeta() {
+    try {
+        const raw = localStorage.getItem(META_KEY);
+        if (!raw) return { bestDistance:0, totalRuns:0, achievements:[] };
+        const m = JSON.parse(raw);
+        if (!m.achievements)               m.achievements = [];
+        if (typeof m.bestDistance !== 'number') m.bestDistance = 0;
+        if (typeof m.totalRuns    !== 'number') m.totalRuns    = 0;
+        return m;
+    } catch(e) {
+        return { bestDistance:0, totalRuns:0, achievements:[] };
     }
-    
-    function addHighScore(initials, level) {
-        highScores.push({ initials: initials.join(''), level: level });
-        highScores.sort((a, b) => b.level - a.level);
-        highScores = highScores.slice(0, 5);
-        saveHighScores();
+}
+
+function saveMeta() {
+    try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch(e) {}
+}
+
+function hasAchievement(id) {
+    return meta.achievements.indexOf(id) !== -1;
+}
+
+function unlockAchievement(id) {
+    if (hasAchievement(id)) return;
+    meta.achievements.push(id);
+    saveMeta();
+    const def = ACHIEVEMENT_DEFS.filter(function(a){ return a.id === id; })[0];
+    if (def) toasts.push({ text:'ACHIEVEMENT: ' + def.name, sub: def.desc, timer:220 });
+}
+
+let meta = loadMeta();
+
+// ==================== GAME STATE ====================
+let gameState    = 'TITLE';
+let cameraX      = 0;
+let frameCount   = 0;
+
+// Run-level state (reset each run)
+let fish             = 0;
+let kills            = 0;
+let distancePx       = 0;
+let runStartTime     = 0;
+let currentBiomeIdx  = 0;
+let lastUpgradePx    = 0;
+let activeUpgrades   = [];
+let noHitRun         = true;
+
+// Screen shake
+let shakeFrames    = 0;
+let shakeMagnitude = 0;
+
+// Toast notifications
+let toasts = [];
+
+// Upgrade / ability selection
+let upgradeChoices  = [];
+let upgradeSelected = -1;
+let abilityChoices  = [];
+let abilitySelected = -1;
+
+// ── Duck ──
+const duck = {
+    worldX:0, y:0, w:32, h:32,
+    dy:0, speed:BASE_SPEED,
+    state:'air',
+    hp:100, maxHp:100,
+    burstCharges:1,
+    animFrame:0, animTimer:0,
+    invincible:0,
+    shield:false,
+    airJumps:0, maxAirJumps:0,
+    alive:true,
+    swiftMode:false
+};
+
+// World object arrays
+let platforms    = [];
+let enemies      = [];
+let collectibles = [];
+let particles    = [];
+let bgParticles  = [];
+
+// World generation cursors
+let nextPlatformX    = 400;
+let nextEnemyX       = 700;
+let nextCollectibleX = 380;
+
+// HP regen timer
+let hpRegenTimer = 0;
+
+// ==================== UTILITY ====================
+function randBetween(a, b) { return a + Math.random() * (b - a); }
+function randInt(a, b)     { return Math.floor(randBetween(a, b + 1)); }
+
+function shuffleArray(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
     }
-    
-    const floorY = 400;
-    const waterY = 350;
-    const leftLandEnd = 150;
-    const rightLandStart = 650;
+    return arr;
+}
 
-    const duck = {
-        x: 50,
-        y: 300,
-        w: 32,
-        h: 32,
-        dy: 0,
-        dx: 1.5, 
-        gravity: 0.5,
-        swimPower: -6,  
-        burstPower: -14, 
-        state: 'ground' 
-    };
-
-    let enemies = [];
-
-    function initLevel() {
-        duck.x = 50;
-        duck.y = 300;
-        duck.dy = 0;
-        duck.state = 'ground';
-        
-        // Don't reset HP - it should persist across levels
-        // Only update the display
-        hpDisplay.innerText = hp;
-        waterTime = 0;
-        
-        // Show HP progress indicator for the level
-        hpProgressContainer.style.display = 'block';
-        hpProgressFill.style.width = '0%';
-        hpProgressText.innerText = '1.0s';
-        
-        enemies = [];
-
-        platforms = [];
-        let platformCount = Math.max(2, 4 - Math.floor(level / 3));
-        let maxPlatW = Math.max(PLATFORM_MIN_W, PLATFORM_MAX_W - Math.floor(level / 2) * 5);
-        let platAttempts = 0;
-        while (platforms.length < platformCount && platAttempts < 50) {
-            platAttempts++;
-            let w = PLATFORM_MIN_W + Math.floor(Math.random() * (maxPlatW - PLATFORM_MIN_W + 1));
-            let x = 180 + Math.floor(Math.random() * (590 - 180 - w));
-            let overlaps = false;
-            for (let i = 0; i < platforms.length; i++) {
-                let p = platforms[i];
-                if (x < p.x + p.w + 30 && x + w > p.x - 30) { overlaps = true; break; }
-            }
-            if (!overlaps) platforms.push({ x: x, y: waterY - PLATFORM_HEIGHT, w: w, h: PLATFORM_HEIGHT });
-        }
-
-        let sharkSpeed = 1.0 + (level * 0.2); 
-        if (sharkSpeed > 5) sharkSpeed = 5; 
-
-        enemies.push({
-            type: 'shark',
-            x: 300 + Math.random() * 100,
-            y: waterY + 10,
-            w: 40,
-            h: 20,
-            dx: -sharkSpeed,
-            dy: 0,
-            dir: -1
-        });
-
-        if (level >= 3) {
-            enemies.push({
-                type: 'shark',
-                x: 450 + Math.random() * 100,
-                y: waterY + 10,
-                w: 40,
-                h: 20,
-                dx: sharkSpeed * 0.85,
-                dy: 0,
-                dir: 1
-            });
-        }
-
-        enemies.push({
-            type: 'gator',
-            x: 500 + Math.random() * 100,
-            y: waterY, 
-            w: 48,
-            h: 24,
-            dx: -0.5, 
-            dy: 0,
-            canJump: level > 1, 
-            jumpTimer: 0
-        });
+function wrapText(c, text, cx, y, maxW, lineH) {
+    const words = text.split(' ');
+    let line = '';
+    for (let i = 0; i < words.length; i++) {
+        const test = line + words[i] + ' ';
+        if (c.measureText(test).width > maxW && line !== '') {
+            c.fillText(line.trim(), cx, y);
+            line = words[i] + ' ';
+            y += lineH;
+        } else { line = test; }
     }
+    if (line.trim()) c.fillText(line.trim(), cx, y);
+}
 
-    function drawRect(x, y, w, h, color) {
-        ctx.fillStyle = color;
-        ctx.fillRect(Math.round(x), Math.round(y), w, h);
-    }
+function formatTime(ms) {
+    const s = Math.floor(ms / 1000);
+    return Math.floor(s/60) + ':' + (s%60 < 10 ? '0' : '') + (s%60);
+}
 
-    function drawPixelDuck(x, y) {
-        drawRect(x + 4, y + 8, 20, 16, '#ffcc00'); 
-        drawRect(x + 8, y, 16, 12, '#ffcc00'); 
-        drawRect(x + 18, y + 2, 4, 4, 'black'); 
-        drawRect(x + 20, y + 2, 2, 2, 'white');
-        drawRect(x + 22, y + 6, 8, 4, '#ff6600'); 
-        drawRect(x + 0, y + 12, 12, 8, '#e6b800'); 
-    }
+function distMeters() { return Math.floor(distancePx / 10); }
 
-    function drawPixelShark(enemy) {
-        let x = enemy.x;
-        let y = enemy.y;
-        drawRect(x + 16, y - 12, 8, 12, 'gray'); 
-        drawRect(x, y, 40, 20, 'gray'); 
-        drawRect(x + 4, y + 4, 4, 4, 'white'); 
-        drawRect(x + 4, y + 4, 2, 2, 'black');
-        drawRect(x + 2, y + 14, 12, 4, 'white'); 
-    }
+// ==================== STUBS (Phase 2 & 3 will replace) ====================
+function spawnParticle()        {}
+function spawnSplash()          {}
+function spawnFeathers()        {}
+function spawnCollectFX()       {}
+function spawnExplosion()       {}
+function spawnBurstFX()         {}
+function updateParticles()      {}
+function drawParticles()        {}
+function drawBgParticles()      {}
+function spawnBiomeParticles()  {}
+function drawBackground()       { ctx.fillStyle = '#5c9fec'; ctx.fillRect(0,0,W,H); }
+function drawEnvironmentFloor() {}
+function drawPlatforms()        {}
+function drawDuck()             {}
+function drawEnemies()          {}
+function drawCollectibles()     {}
+function generatePlatforms()    {}
+function cullPlatforms()        {}
+function spawnEnemies()         {}
+function updateEnemies()        {}
+function generateCollectibles() {}
+function updateCollectibles()   {}
+function updatePhysics()        {}
+function updateHUD()            {}
+function drawTitleScreen()      {
+    ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0,0,W,H);
+    ctx.font = 'bold 52px Courier New'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffe066'; ctx.fillText('DUCK RUN', W/2, 180);
+    ctx.font = '22px Courier New'; ctx.fillStyle = '#aaaaff';
+    ctx.fillText('ENDLESS', W/2, 220);
+    ctx.font = '16px Courier New'; ctx.fillStyle = '#ffffff';
+    if (Math.floor(frameCount/30)%2===0) ctx.fillText('PRESS ANY KEY', W/2, 300);
+    ctx.textAlign = 'left';
+}
+function drawAbilityPick()      {}
+function drawUpgradeScreen()    {}
+function drawDeathScreen()      {}
+function drawToasts()           {}
+function startRun()             {}
+function gameOver()             {}
+function triggerUpgrade()       {}
+function checkBiomeTransition() {}
+function checkAchievements()    {}
+function doJump()               {}
+function doBurst()              {}
+function selectAbility(i)       {}
+function applyUpgrade(i)        {}
 
-    function drawPixelGator(enemy) {
-        let x = enemy.x;
-        let y = enemy.y;
-        drawRect(x, y, 48, 16, '#00aa00'); 
-        drawRect(x - 12, y + 4, 12, 8, '#00aa00'); 
-        drawRect(x + 4, y - 4, 6, 6, 'white'); 
-        drawRect(x + 6, y - 4, 2, 4, 'black');
-        drawRect(x + 10, y - 4, 4, 4, '#006600'); 
-        drawRect(x + 20, y - 4, 4, 4, '#006600');
-        drawRect(x + 30, y - 4, 4, 4, '#006600');
-    }
+// ==================== INPUT ====================
+document.addEventListener('keydown', function(e) {
+    initAudio();
+    if (gameState === 'TITLE') { gameState = 'ABILITY_PICK'; }
+});
+canvas.addEventListener('click', function() { initAudio(); if (gameState === 'TITLE') gameState = 'ABILITY_PICK'; });
+document.getElementById('jumpBtn').addEventListener('touchstart',  function(e){ e.preventDefault(); initAudio(); }, {passive:false});
+document.getElementById('burstBtn').addEventListener('touchstart', function(e){ e.preventDefault(); initAudio(); }, {passive:false});
 
-    function drawEnvironment() {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+// ==================== GAME LOOP ====================
+function loop() {
+    frameCount++;
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, W, H);
 
-        ctx.fillStyle = '#d2691e';
-        ctx.fillRect(0, floorY, leftLandEnd, canvas.height - floorY);
-        ctx.fillStyle = '#00aa00';
-        ctx.fillRect(0, floorY, leftLandEnd, 10);
-        
-        ctx.fillStyle = '#d2691e';
-        ctx.fillRect(rightLandStart, floorY, canvas.width - rightLandStart, canvas.height - floorY);
-        ctx.fillStyle = '#00aa00';
-        ctx.fillRect(rightLandStart, floorY, canvas.width - rightLandStart, 10);
-
-        ctx.fillStyle = 'rgba(0, 100, 255, 0.7)'; 
-        ctx.fillRect(leftLandEnd, waterY + 15, rightLandStart - leftLandEnd, canvas.height - waterY);
-        
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        for(let i = leftLandEnd; i < rightLandStart; i+= 20) {
-            let waveH = Math.sin((frameCount + i) * 0.05) * 3;
-            ctx.moveTo(i, waterY + 15 + waveH);
-            ctx.lineTo(i + 20, waterY + 15 - waveH);
-        }
-        ctx.stroke();
-
-        // Draw floating log platforms
-        for (let i = 0; i < platforms.length; i++) {
-            let plat = platforms[i];
-            ctx.fillStyle = '#8B4513';
-            ctx.fillRect(Math.round(plat.x), Math.round(plat.y), plat.w, plat.h);
-            ctx.fillStyle = '#A0522D';
-            ctx.fillRect(Math.round(plat.x + 2), Math.round(plat.y + 2), plat.w - 4, 3);
-            ctx.fillStyle = 'rgba(255,255,255,0.25)';
-            ctx.fillRect(Math.round(plat.x), Math.round(plat.y), plat.w, 2);
-        }
-    }
-
-    function updatePhysics() {
-        let inWaterZone = duck.x > leftLandEnd - 10 && duck.x < rightLandStart;
-        
-        duck.dy += duck.gravity;
-        duck.y += duck.dy;
-
-        if (gameState === "PLAYING" && duck.x < rightLandStart + 50) {
-            duck.x += duck.dx;
-        }
-
-        let onPlatform = false;
-        for (let i = 0; i < platforms.length; i++) {
-            let plat = platforms[i];
-            if (
-                duck.dy >= 0 &&
-                duck.x + duck.w > plat.x + 4 &&
-                duck.x < plat.x + plat.w - 4 &&
-                duck.y + duck.h >= plat.y &&
-                duck.y + duck.h <= plat.y + plat.h + 8
-            ) {
-                duck.y = plat.y - duck.h;
-                duck.dy = 0;
-                duck.state = 'ground';
-                onPlatform = true;
-                break;
-            }
-        }
-
-        if (inWaterZone && !onPlatform) {
-            if (duck.y + duck.h > waterY + 20) {
-                duck.y = waterY + 20 - duck.h;
-                duck.dy = 0;
-                duck.state = 'water';
-                duck.y += Math.sin(frameCount * 0.1) * 2; 
-                
-                // REWARD SYSTEM: Gain HP for staying on water
-                if (gameState === "PLAYING") {
-                    waterTime++;
-                    
-                    // Update progress indicator
-                    const progress = (waterTime / HP_GAIN_INTERVAL) * 100;
-                    const secondsRemaining = ((HP_GAIN_INTERVAL - waterTime) / 60).toFixed(1);
-                    hpProgressFill.style.width = progress + '%';
-                    hpProgressText.innerText = secondsRemaining + 's';
-                    
-                    // Every second (60 frames) on water, gain 10 HP
-                    if (waterTime >= HP_GAIN_INTERVAL) {
-                        if (hp < maxHp) {
-                            hp = Math.min(hp + 10, maxHp);
-                            hpDisplay.innerText = hp;
-                            // Visual feedback - play a subtle tone
-                            playTone(noteFreqs.E5, 'sine', 0.05, 0.02);
-                        }
-                        waterTime = 0; // Reset to restart the indicator
-                    }
-                }
-            } else {
-                duck.state = 'air';
-                // Don't reset waterTime - just pause it (keep visual visible)
-            }
-        } else {
-            if (duck.y + duck.h > floorY) {
-                duck.y = floorY - duck.h;
-                duck.dy = 0;
-                duck.state = 'ground';
-                // Don't reset waterTime - just pause it (keep visual visible)
-            } else {
-                duck.state = 'air';
-                // Don't reset waterTime - just pause it (keep visual visible)
-            }
-        }
-
-        enemies.forEach(enemy => {
-            if (enemy.type === 'shark') {
-                enemy.x += enemy.dx;
-                if (enemy.x < leftLandEnd || enemy.x > rightLandStart - 40) {
-                    enemy.dx *= -1;
-                }
-                if (enemy.y < waterY + 5) enemy.y = waterY + 5;
-            }
-            
-            if (enemy.type === 'gator') {
-                enemy.x += enemy.dx;
-                if (enemy.x < leftLandEnd + 50) enemy.x = rightLandStart - 50;
-                enemy.dy += 0.4;
-                enemy.y += enemy.dy;
-
-                if (enemy.y > waterY) {
-                    enemy.y = waterY;
-                    enemy.dy = 0;
-                    if (enemy.canJump) {
-                        enemy.jumpTimer++;
-                        if (enemy.jumpTimer > 150 && Math.random() > 0.95) {
-                            enemy.dy = -12; 
-                            enemy.jumpTimer = 0;
-                        }
-                    }
-                }
-            }
-
-            if (gameState === "PLAYING") {
-                if (
-                    duck.x < enemy.x + enemy.w - 5 &&
-                    duck.x + duck.w > enemy.x + 5 &&
-                    duck.y < enemy.y + enemy.h - 5 &&
-                    duck.y + duck.h > enemy.y + 5
-                ) {
-                    // Reduce HP by collision damage
-                    hp -= COLLISION_DAMAGE;
-                    hpDisplay.innerText = hp;
-                    
-                    // Push duck back to avoid repeated collisions
-                    duck.x -= COLLISION_KNOCKBACK;
-                    if (duck.x < 0) duck.x = 0;
-                    
-                    // Play hit sound
-                    playTone(noteFreqs.C3, 'sawtooth', 0.2, 0.1);
-                    
-                    // Check if HP reached zero
-                    if (hp <= 0) {
-                        gameOver();
-                    }
-                }
-            }
-        });
-
-        if (gameState === "PLAYING" && duck.x > rightLandStart + 20) {
-            nextLevel();
-        }
-    }
-
-    function nextLevel() {
-        gameState = "WIN"; 
-        level++;
-        burstCharges++;
-        sfxWin(); // Play Win Sound
-        
-        draw(); 
-        
-        setTimeout(() => {
-            initLevel();
-            gameState = "PLAYING";
-            levelDisplay.innerText = level;
-            burstDisplay.innerText = burstCharges;
-            if (!isMusicPlaying) startBackgroundMusic(); // Restart music
-        }, 2000);
-    }
-
-    function gameOver() {
-        sfxDie(); // Play Die Sound
-        
-        // Check if player made top 5
-        if (isTopScore(level)) {
-            isNewHighScore = true;
-            playerInitials = ['A', 'A', 'A'];
-            currentInitialIndex = 0;
-            gameState = "ENTER_INITIALS";
-        } else {
-            gameState = "GAMEOVER";
-        }
-    }
-
-    function drawInitialEntry() {
-        ctx.fillStyle = "rgba(0,0,0,0.85)";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        // Title
-        ctx.fillStyle = "yellow";
-        ctx.font = "40px Courier New";
-        ctx.textAlign = "center";
-        ctx.fillText("NEW HIGH SCORE!", canvas.width/2, 100);
-        
-        ctx.fillStyle = "white";
-        ctx.font = "24px Courier New";
-        ctx.fillText(`Level ${level} Completed`, canvas.width/2, 140);
-        
-        // Instructions
-        ctx.font = "16px Courier New";
-        ctx.fillStyle = "#aaa";
-        ctx.fillText("Enter Your Initials:", canvas.width/2, 190);
-        
-        // Draw initial boxes
-        const boxWidth = 60;
-        const boxHeight = 80;
-        const spacing = 20;
-        const startX = canvas.width/2 - (boxWidth * 1.5 + spacing);
-        const boxY = 220;
-        
-        for (let i = 0; i < 3; i++) {
-            const x = startX + i * (boxWidth + spacing);
-            
-            // Box
-            if (i === currentInitialIndex) {
-                ctx.strokeStyle = "yellow";
-                ctx.lineWidth = 4;
-            } else {
-                ctx.strokeStyle = "#555";
-                ctx.lineWidth = 2;
-            }
-            ctx.strokeRect(x, boxY, boxWidth, boxHeight);
-            
-            // Letter
-            ctx.fillStyle = i === currentInitialIndex ? "yellow" : "white";
-            ctx.font = "48px Courier New";
-            ctx.fillText(playerInitials[i], x + boxWidth/2, boxY + 60);
-        }
-        
-        // Arrow indicators for current letter
-        if (frameCount % 60 < 30) {
-            const x = startX + currentInitialIndex * (boxWidth + spacing);
-            ctx.fillStyle = "yellow";
-            ctx.font = "30px Courier New";
-            ctx.fillText("▲", x + boxWidth/2, boxY - 10);
-            ctx.fillText("▼", x + boxWidth/2, boxY + boxHeight + 35);
-        }
-        
-        // Controls
-        ctx.font = "14px Courier New";
-        ctx.fillStyle = "#aaa";
-        ctx.fillText("↑↓: Change Letter  |  ←→: Move Position  |  ENTER: Confirm", canvas.width/2, 370);
-    }
-    
-    function drawScoreboard() {
-        const boardWidth = 400;
-        const boardHeight = 280;
-        const boardX = canvas.width/2 - boardWidth/2;
-        const boardY = 80;
-        
-        // Board background
-        ctx.fillStyle = "rgba(0,0,0,0.9)";
-        ctx.fillRect(boardX, boardY, boardWidth, boardHeight);
-        ctx.strokeStyle = "yellow";
-        ctx.lineWidth = 3;
-        ctx.strokeRect(boardX, boardY, boardWidth, boardHeight);
-        
-        // Title
-        ctx.fillStyle = "yellow";
-        ctx.font = "28px Courier New";
-        ctx.textAlign = "center";
-        ctx.fillText("★ HIGH SCORES ★", canvas.width/2, boardY + 35);
-        
-        // Headers
-        ctx.fillStyle = "#aaa";
-        ctx.font = "16px Courier New";
-        ctx.textAlign = "left";
-        ctx.fillText("RANK", boardX + 30, boardY + 70);
-        ctx.fillText("PLAYER", boardX + 120, boardY + 70);
-        ctx.textAlign = "right";
-        ctx.fillText("LEVEL", boardX + boardWidth - 30, boardY + 70);
-        
-        // Divider
-        ctx.strokeStyle = "#555";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(boardX + 20, boardY + 80);
-        ctx.lineTo(boardX + boardWidth - 20, boardY + 80);
-        ctx.stroke();
-        
-        // Scores
-        ctx.font = "20px Courier New";
-        for (let i = 0; i < 5; i++) {
-            const y = boardY + 115 + i * 30;
-            
-            if (i < highScores.length) {
-                ctx.fillStyle = i === 0 ? "gold" : i === 1 ? "silver" : i === 2 ? "#cd7f32" : "white";
-                ctx.textAlign = "left";
-                ctx.fillText(`${i + 1}.`, boardX + 30, y);
-                ctx.fillText(highScores[i].initials, boardX + 120, y);
-                ctx.textAlign = "right";
-                ctx.fillText(highScores[i].level.toString(), boardX + boardWidth - 30, y);
-            } else {
-                ctx.fillStyle = "#333";
-                ctx.textAlign = "left";
-                ctx.fillText(`${i + 1}.`, boardX + 30, y);
-                ctx.fillText("---", boardX + 120, y);
-                ctx.textAlign = "right";
-                ctx.fillText("-", boardX + boardWidth - 30, y);
-            }
-        }
+    if (gameState === 'TITLE' || gameState === 'ABILITY_PICK') {
+        drawTitleScreen();
     }
 
-    function draw() {
-        updateTouchUI();
-        drawEnvironment();
+    requestAnimationFrame(loop);
+}
 
-        enemies.forEach(enemy => {
-            if (enemy.type === 'shark') drawPixelShark(enemy);
-            if (enemy.type === 'gator') drawPixelGator(enemy);
-        });
-
-        drawPixelDuck(duck.x, duck.y);
-
-        ctx.fillStyle = "white";
-        ctx.textAlign = "center";
-        ctx.shadowColor = "black";
-        ctx.shadowBlur = 0;
-
-        if (gameState === "START") {
-            ctx.fillStyle = "rgba(0,0,0,0.7)";
-            ctx.fillRect(0,0,canvas.width, canvas.height);
-            ctx.fillStyle = "white";
-            ctx.font = "40px Courier New";
-            ctx.fillText("8-BIT DUCK SURVIVAL", canvas.width/2, 180);
-            ctx.font = "20px Courier New";
-            ctx.fillText(isTouchDevice ? "Tap to Start" : "Press SPACE to Start", canvas.width/2, 230);
-            ctx.font = "14px Courier New";
-            ctx.fillStyle = "yellow";
-            ctx.fillText("(Sound Enabled)", canvas.width/2, 260);
-        } 
-        else if (gameState === "ENTER_INITIALS") {
-            drawInitialEntry();
-        }
-        else if (gameState === "GAMEOVER") {
-            ctx.fillStyle = "rgba(150,0,0,0.7)";
-            ctx.fillRect(0,0,canvas.width, canvas.height);
-            ctx.fillStyle = "white";
-            ctx.font = "50px Courier New";
-            ctx.fillText("YOU DIED", canvas.width/2, 140);
-            ctx.font = "24px Courier New";
-            ctx.fillText(`Level ${level} Reached`, canvas.width/2, 180);
-            
-            // Draw scoreboard
-            drawScoreboard();
-            
-            ctx.font = "16px Courier New";
-            ctx.fillStyle = "#aaa";
-            ctx.fillText(isTouchDevice ? "Tap to Restart" : "Reload page to restart", canvas.width/2, 400);
-        }
-        else if (gameState === "WIN") {
-            ctx.font = "40px Courier New";
-            ctx.fillStyle = "yellow";
-            ctx.fillText("LEVEL COMPLETE!", canvas.width/2, 200);
-            ctx.fillStyle = "white";
-            ctx.font = "20px Courier New";
-            ctx.fillText("+1 Burst Charge Earned", canvas.width/2, 240);
-        }
-    }
-
-    function handleJump() {
-        // INIT AUDIO ON FIRST INTERACTION
-        initAudio();
-
-        if (gameState === "START") {
-            gameState = "PLAYING";
-            initLevel();
-            return;
-        }
-        if (gameState !== "PLAYING") return;
-        
-        duck.dy = duck.swimPower;
-        sfxJump(); // Play Jump Sound
-    }
-
-    function handleBurst() {
-        initAudio();
-        if (gameState !== "PLAYING") return;
-        if (burstCharges > 0) {
-            duck.dy = duck.burstPower;
-            burstCharges--;
-            burstDisplay.innerText = burstCharges;
-            ctx.fillStyle = 'white';
-            ctx.fillRect(0,0,canvas.width, canvas.height);
-            sfxBurst(); // Play Burst Sound
-        }
-    }
-
-    window.addEventListener('keydown', (e) => {
-        // Initial entry controls
-        if (gameState === "ENTER_INITIALS") {
-            if (e.key === 'ArrowUp') {
-                e.preventDefault();
-                const currentChar = playerInitials[currentInitialIndex];
-                const charIndex = ALPHABET.indexOf(currentChar);
-                playerInitials[currentInitialIndex] = ALPHABET[(charIndex + 1) % ALPHABET.length];
-                playTone(noteFreqs.C5, 'square', 0.05, 0.05);
-            }
-            else if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                const currentChar = playerInitials[currentInitialIndex];
-                const charIndex = ALPHABET.indexOf(currentChar);
-                playerInitials[currentInitialIndex] = ALPHABET[(charIndex - 1 + ALPHABET.length) % ALPHABET.length];
-                playTone(noteFreqs.C5, 'square', 0.05, 0.05);
-            }
-            else if (e.key === 'ArrowLeft') {
-                e.preventDefault();
-                currentInitialIndex = Math.max(0, currentInitialIndex - 1);
-                playTone(noteFreqs.E5, 'square', 0.05, 0.05);
-            }
-            else if (e.key === 'ArrowRight') {
-                e.preventDefault();
-                currentInitialIndex = Math.min(2, currentInitialIndex + 1);
-                playTone(noteFreqs.E5, 'square', 0.05, 0.05);
-            }
-            else if (e.key === 'Enter') {
-                e.preventDefault();
-                addHighScore(playerInitials, level);
-                sfxWin();
-                gameState = "GAMEOVER";
-            }
-            return;
-        }
-        
-        // Normal game controls
-        if (e.code === 'Space') handleJump();
-        if (e.key === 'Shift') handleBurst();
-    });
-    canvas.addEventListener('mousedown', handleJump);
-
-    function loop() {
-        if (gameState === "PLAYING" || gameState === "WIN") {
-            updatePhysics();
-            frameCount++;
-        }
-        draw();
-        requestAnimationFrame(loop);
-    }
-
-    loadHighScores();
-    initLevel();
-    loop();
-
+// ==================== BOOTSTRAP ====================
+loop();
 </script>
 </body>
 </html>
