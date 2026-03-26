@@ -1,71 +1,126 @@
-# 8-Bit Duck Survival
+# Duck Run: Endless
 
-A retro-style survival game created using Google Gemini 3 Pro from a hand-drawn sketch through just 3 rounds of basic prompting.
+An infinite side-scrolling roguelite runner built entirely in a single HTML file — no frameworks, no dependencies, no build step. Created with AI assistance to showcase what modern AI-assisted development can produce from a blank canvas.
 
-## About
+## Play
 
-This project demonstrates the power of AI-assisted game development. Starting from a simple hand sketch, this fully playable 8-bit style game was generated with minimal prompting, showcasing how modern AI can transform rough ideas into functional games.
+**Live on GitHub Pages:** https://thewizster.github.io/duckgame/
 
-## How to Play
-
-**Play now** on GitHub Pages: https://thewizster.github.io/duckgame/
-
-### Controls
-
-- **SPACE** (or tap): Swim/Hop
-- **SHIFT** (or BURST button on mobile): Super Burst Flight (uses burst charges)
-
-### Gameplay Mechanics
-
-- **Survive** by avoiding sharks and gators as you progress through levels
-- **Stay on water** to regenerate health - gain 10 HP every second while floating
-- **Land on log platforms** floating in the water to take a breather safely
-- **HP persists across levels** - Your health carries over, so manage it wisely
-- **Persistent HP regeneration timer** - Always visible throughout level, pauses when not on water
-- **Timer continues on landing** - HP regen progress resumes when you return to water
-- **Take hits** - You start with 100 HP and lose 25 HP per collision
-- **Reach the right side** of the screen to complete each level and earn burst charges
-- **Enemies get tougher** - Shark speed increases each level; a second shark appears at level 3; gators start jumping at level 2
-- **Compete** for the top 5 high scores
-
-## Play Off-line
-
-1. **Download** the `index.html` file
-2. **Save** it anywhere on your computer
-3. **Double-click** the file to open it in your web browser
-4. **Play!** Use SPACE to swim/hop and SHIFT for burst flight
-
-No installation, no dependencies, no setup required - just download and play!
-
-## Game Features
-
-- Retro 8-bit graphics style
-- Background music and sound effects
-- **High score system** with localStorage persistence
-- **Arcade-style initial entry** for top 5 scores
-- **Leaderboard display** on game over screen
-- **Health Point (HP) reward system** - Stay on water to regenerate health
-- **Non-instant death** - Get hit up to 4 times before game over
-- **Floating log platforms** - Safe landing spots scattered across the water
-- **Escalating difficulty** - More sharks, faster speeds, and jumping gators as levels increase
-- **Mobile/touch support** - On-screen SWIM and BURST buttons, touch-friendly initials entry
-- **Responsive scaling** - Automatically fits smaller screens and tablets
-- Simple, intuitive controls
-- Runs entirely in your browser (no server required)
-
-## Technical Details
-
-- **Created with**: Google Gemini 3 Pro
-- **Initial Development**: 5 revision rounds of basic prompting with Gemini.
-- **New Features and Updates**: Claude Sonnet 4.6
-- **Design Source**: Hand-drawn sketch shared with Gemini
-- **Technology**: Pure HTML5 Canvas, JavaScript, and CSS
-- **Requirements**: Any modern web browser
-
-## Credits
-
-Game concept and AI prompting by thewizster. Generated using Google's Gemini AI.
+**Offline:** Download `index.html`, double-click, play. That's it.
 
 ---
 
-Enjoy the game! 🦆
+## How to Play
+
+### Controls
+
+| Input | Action |
+|---|---|
+| **SPACE** | Jump (on ground) / Swim (in water) |
+| **SHIFT** | Burst — powerful upward launch, uses a charge |
+| **1 / 2 / 3** | Select ability or upgrade in menus |
+| **R** | Restart after death |
+| **Left tap** | Jump / Swim (mobile) |
+| **Right tap** | Burst (mobile) |
+
+### The basics
+
+- The duck runs right automatically — your job is to keep it alive
+- **Jump and swim** over enemies and obstacles
+- **Burst** launches you high and **kills any enemy on contact** — use it offensively and to escape
+- **Water heals** — floating in water slowly restores HP
+- **Falling into lava** is instant death; **falling off the sky** is too
+- Die and your run ends, but your best distance and achievements are saved
+
+### Upgrades
+
+Every **600 metres** the game pauses and offers you **3 random upgrades** — pick one:
+
+| Upgrade | Effect |
+|---|---|
+| Double Jump | Jump once more while airborne |
+| Bubble Shield | Absorb one hit before recharging |
+| Tailwind | +0.5 max speed |
+| Healing Waters | 2× HP regen in water |
+| Power Feathers | +1 burst charge |
+| Fish Magnet | Auto-collect fish within 120px |
+| Spike Feathers | Burst kills refund a burst charge |
+| Soaring Wings | Burst power +3 |
+| Sea Legs | Platforms appear wider |
+| Hearty Duck | +25 max HP and restore 25 HP |
+
+### Starting abilities
+
+At the start of each run, choose one of three randomly offered abilities:
+
+- **Standard Duck** — +1 burst charge to start
+- **Tough Duck** — +25 max HP, take only 15 damage per hit
+- **Swift Duck** — +0.8 base speed, lower gravity
+- **Water Duck** — start with Healing Waters active
+- **Storm Duck** — start with 3 burst charges
+
+---
+
+## Game Features
+
+### 5 Biomes
+The world changes as you run further, each with unique visuals, enemies, and hazards:
+
+| Distance | Biome | Hazard |
+|---|---|---|
+| 0m | Ocean Shore | Water floor, sharks, gators |
+| 1500m | Deep Swamp | Murky water, eels, pufferfish |
+| 3000m | Arctic Tundra | Ice floor, walruses, seagulls |
+| 4500m | Volcanic Waste | Lava floor (instant kill), crabs, salamanders |
+| 6000m | Sky Kingdom | No floor — fall = death, aerial enemies |
+
+### 8 Enemy Types
+
+- **Shark** — horizontal patrol at water surface
+- **Gator** — patrol + occasional jumps
+- **Pufferfish** — inflates every few seconds; only dangerous when inflated
+- **Eel** — sinusoidal swooping movement in water
+- **Seagull** — dives toward your position when close
+- **Crab** — slow patrol with sudden fast shuffles
+- **Walrus** — fast sliding patrol on ice
+- **Salamander** — floor patrol leaving ember trails
+
+### Roguelite progression
+- Each run is independent — die and start fresh with a new ability
+- Upgrade choices are randomised every run
+- Speed increases gradually the further you go
+- Best distance, run count, and achievements persist via localStorage
+
+### 10 Achievements
+Unlocked across runs and shown as toast notifications:
+
+First Splash · Half Mile · Marathon Duck · Swamp Things · Frostbite · Hot Feet · Sky Duck · Bully · Power Up · Untouchable
+
+### Polish
+- Parallax backgrounds (3 layers per biome)
+- Particle system — water splashes, feathers on impact, explosions, burst trails, biome ambients (snow, embers, bubbles, wisps)
+- Screen shake on every hit
+- 3-frame duck wing animation
+- 5 biome-specific music themes (different scales and tempos)
+- 10 sound effects procedurally generated with Web Audio API
+- Full mobile/touch support
+
+---
+
+## Technical Details
+
+- **Technology:** Pure HTML5 Canvas + vanilla JavaScript + CSS
+- **Size:** Single `index.html` file, ~2200 lines
+- **Dependencies:** None
+- **Build tools:** None
+- **Created with:** Claude Opus 4 (game design and all four build phases), originally prototyped with Google Gemini 3 Pro
+
+---
+
+## Credits
+
+Game concept and AI prompting by thewizster.
+
+---
+
+Enjoy the run! 🦆
