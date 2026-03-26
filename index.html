@@ -566,28 +566,654 @@ function formatTime(ms) {
 
 function distMeters() { return Math.floor(distancePx / 10); }
 
-// ==================== STUBS (Phase 2 & 3 will replace) ====================
-function spawnParticle()        {}
-function spawnSplash()          {}
-function spawnFeathers()        {}
-function spawnCollectFX()       {}
-function spawnExplosion()       {}
-function spawnBurstFX()         {}
-function updateParticles()      {}
-function drawParticles()        {}
-function drawBgParticles()      {}
-function spawnBiomeParticles()  {}
-function drawBackground()       { ctx.fillStyle = '#5c9fec'; ctx.fillRect(0,0,W,H); }
-function drawEnvironmentFloor() {}
-function drawPlatforms()        {}
-function drawDuck()             {}
-function drawEnemies()          {}
-function drawCollectibles()     {}
-function generatePlatforms()    {}
-function cullPlatforms()        {}
+// ==================== PARTICLE SYSTEM ====================
+function spawnParticle(x, y, dx, dy, life, color, size) {
+    particles.push({ x:x, y:y, dx:dx, dy:dy, life:life, maxLife:life, color:color, size:size });
+}
+
+function spawnSplash(x, y, color) {
+    for (var i = 0; i < 10; i++) {
+        var angle = Math.PI + Math.random() * Math.PI;
+        var spd   = 1.5 + Math.random() * 3.5;
+        spawnParticle(x, y, Math.cos(angle)*spd, Math.sin(angle)*spd - 1.5,
+            18 + Math.random()*18, color || '#5ab4ff', 2 + Math.random()*3);
+    }
+}
+
+function spawnFeathers(x, y) {
+    var cols = ['#f5c842','#c89820','#f0e040','#a07010'];
+    for (var i = 0; i < 7; i++) {
+        var angle = Math.random() * Math.PI * 2;
+        var spd   = 1 + Math.random() * 4;
+        spawnParticle(x, y, Math.cos(angle)*spd, Math.sin(angle)*spd - 1,
+            28 + Math.random()*28, cols[i % cols.length], 3 + Math.random()*3);
+    }
+}
+
+function spawnCollectFX(x, y) {
+    for (var i = 0; i < 8; i++) {
+        var angle = (i / 8) * Math.PI * 2;
+        spawnParticle(x, y, Math.cos(angle)*3, Math.sin(angle)*3 - 0.5,
+            22, '#ffe066', 3);
+    }
+}
+
+function spawnExplosion(x, y) {
+    var cols = ['#ff6600','#ffaa00','#ffdd00','#ff3300','#ffffff'];
+    for (var i = 0; i < 16; i++) {
+        var angle = Math.random() * Math.PI * 2;
+        var spd   = 1 + Math.random() * 5;
+        spawnParticle(x, y, Math.cos(angle)*spd, Math.sin(angle)*spd - 1.5,
+            22 + Math.random()*22, cols[Math.floor(Math.random()*cols.length)], 2 + Math.random()*4);
+    }
+}
+
+function spawnBurstFX(x, y) {
+    for (var i = 0; i < 10; i++) {
+        spawnParticle(x + (Math.random()-0.5)*20, y + (Math.random()-0.5)*20,
+            (Math.random()-0.5)*4, -1 - Math.random()*3,
+            14 + Math.random()*10, '#88ccff', 3 + Math.random()*3);
+    }
+}
+
+function updateParticles() {
+    for (var i = particles.length - 1; i >= 0; i--) {
+        var p = particles[i];
+        p.x  += p.dx;
+        p.y  += p.dy;
+        p.dy += 0.12;
+        p.life--;
+        if (p.life <= 0) particles.splice(i, 1);
+    }
+    for (var j = bgParticles.length - 1; j >= 0; j--) {
+        var b = bgParticles[j];
+        b.x += b.dx;
+        b.y += b.dy;
+        b.life--;
+        if (b.life <= 0) bgParticles.splice(j, 1);
+    }
+}
+
+function drawParticles() {
+    for (var i = 0; i < particles.length; i++) {
+        var p = particles[i];
+        ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+        ctx.fillStyle   = p.color;
+        ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+}
+
+function drawBgParticles() {
+    for (var i = 0; i < bgParticles.length; i++) {
+        var p = bgParticles[i];
+        ctx.globalAlpha = Math.min(1, p.life / 40) * 0.75;
+        ctx.fillStyle   = p.color;
+        ctx.fillRect(p.x, p.y, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+}
+
+function spawnBiomeParticles() {
+    var b = BIOMES[currentBiomeIdx];
+    if (frameCount % 3 !== 0) return;
+    switch (b.particle) {
+        case 'spray':
+            if (Math.random() < 0.12)
+                bgParticles.push({ x:Math.random()*W, y:b.floorY-4,
+                    dx:(Math.random()-0.5)*1.5, dy:-0.8-Math.random()*1.2,
+                    life:30+Math.random()*20, size:2, color:'#c0e8ff' });
+            break;
+        case 'bubble':
+            if (Math.random() < 0.18)
+                bgParticles.push({ x:80+Math.random()*(W-160), y:b.floorY+20+Math.random()*70,
+                    dx:(Math.random()-0.5)*0.6, dy:-0.4-Math.random()*0.8,
+                    life:55+Math.random()*45, size:3+Math.floor(Math.random()*2), color:'#70aa30' });
+            break;
+        case 'snow':
+            if (Math.random() < 0.45)
+                bgParticles.push({ x:Math.random()*W, y:-4,
+                    dx:(Math.random()-0.5)*0.8, dy:1+Math.random()*2,
+                    life:180+Math.random()*120, size:2+Math.floor(Math.random()*2), color:'#e8f4ff' });
+            break;
+        case 'ember':
+            if (Math.random() < 0.35)
+                bgParticles.push({ x:Math.random()*W, y:H,
+                    dx:(Math.random()-0.5)*2, dy:-1.2-Math.random()*2,
+                    life:50+Math.random()*60, size:2, color:Math.random()<0.5?'#ff6600':'#ffaa00' });
+            break;
+        case 'wisp':
+            if (Math.random() < 0.12)
+                bgParticles.push({ x:Math.random()*W, y:Math.random()*H,
+                    dx:(Math.random()-0.5)*0.5, dy:-0.2-Math.random()*0.3,
+                    life:100+Math.random()*80, size:3, color:'#a060ff' });
+            break;
+    }
+}
+
+// ==================== BACKGROUND RENDERING ====================
+function drawBackground() {
+    var b = BIOMES[currentBiomeIdx];
+    // Sky gradient
+    var grd = ctx.createLinearGradient(0, 0, 0, H);
+    grd.addColorStop(0, b.skyTop);
+    grd.addColorStop(1, b.skyBot);
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.save();
+    switch (currentBiomeIdx) {
+        case 0: drawBgOcean();    break;
+        case 1: drawBgSwamp();    break;
+        case 2: drawBgArctic();   break;
+        case 3: drawBgVolcanic(); break;
+        case 4: drawBgSky();      break;
+    }
+    ctx.restore();
+}
+
+function drawBgOcean() {
+    // Layer 1 (0.1x): distant clouds
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    for (var i = 0; i < 6; i++) {
+        var cx = ((i * 280 - cameraX * 0.1) % (W + 300) + W + 300) % (W + 300) - 150;
+        var cy = 30 + (i % 3) * 22;
+        ctx.fillRect(cx, cy, 90 + i*12, 22);
+        ctx.fillRect(cx + 18, cy - 14, 55, 18);
+    }
+    // Layer 2 (0.3x): distant cliff
+    ctx.fillStyle = '#5a3a18';
+    var cliff = (-(cameraX * 0.3)) % (W + 200);
+    ctx.fillRect(cliff,         H - 90, W + 200, 90);
+    ctx.fillRect(cliff + W + 200, H - 90, W + 200, 90);
+    ctx.fillStyle = '#3a7a22';
+    ctx.fillRect(cliff,         H - 90, W + 200, 7);
+    ctx.fillRect(cliff + W + 200, H - 90, W + 200, 7);
+}
+
+function drawBgSwamp() {
+    // Fog bands
+    ctx.fillStyle = 'rgba(40,80,10,0.18)';
+    for (var f = 0; f < 4; f++) {
+        var fx = ((f * 260 - cameraX * 0.12) % (W + 320) + W + 320) % (W + 320) - 160;
+        ctx.fillRect(fx, H * 0.25, 280, H * 0.55);
+    }
+    // Dead trees (layer 2, 0.25x)
+    ctx.fillStyle = '#1a0e04';
+    for (var t = 0; t < 7; t++) {
+        var tx = ((t * 200 - cameraX * 0.25) % (W + 250) + W + 250) % (W + 250) - 80;
+        ctx.fillRect(tx + 2, 80, 7, 240);
+        ctx.fillRect(tx - 14, 130, 18, 5);
+        ctx.fillRect(tx + 9,  160, 22, 5);
+    }
+}
+
+function drawBgArctic() {
+    // Aurora bands
+    var ao = Math.sin(frameCount * 0.015);
+    ctx.fillStyle = 'rgba(80,255,140,0.07)';
+    ctx.fillRect(0, 15 + ao * 18, W, 70);
+    ctx.fillStyle = 'rgba(80,140,255,0.07)';
+    ctx.fillRect(0, 55 + ao * 12, W, 50);
+    // Mountains (0.2x)
+    ctx.fillStyle = '#b8d8f0';
+    var mOff = (-(cameraX * 0.2)) % W;
+    var pts  = [[0,210],[80,130],[200,190],[340,105],[480,165],[620,95],[780,150],[900,210]];
+    ctx.beginPath();
+    ctx.moveTo(mOff, H);
+    for (var p = 0; p < pts.length; p++) ctx.lineTo(mOff + pts[p][0], pts[p][1]);
+    ctx.lineTo(mOff + W, H); ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(mOff + W, H);
+    for (var q = 0; q < pts.length; q++) ctx.lineTo(mOff + W + pts[q][0], pts[q][1]);
+    ctx.lineTo(mOff + W*2, H); ctx.closePath(); ctx.fill();
+}
+
+function drawBgVolcanic() {
+    // Lava glow rising from bottom
+    var glowGrd = ctx.createLinearGradient(0, H - 130, 0, H);
+    glowGrd.addColorStop(0, 'rgba(255,70,0,0)');
+    glowGrd.addColorStop(1, 'rgba(255,70,0,0.38)');
+    ctx.fillStyle = glowGrd;
+    ctx.fillRect(0, H - 130, W, 130);
+    // Rock pillars (0.2x)
+    ctx.fillStyle = '#2a0e00';
+    for (var r = 0; r < 5; r++) {
+        var rx = ((r * 190 - cameraX * 0.2) % (W + 250) + W + 250) % (W + 250) - 80;
+        ctx.fillRect(rx, 60, 55, H);
+    }
+    // Smoke puffs
+    ctx.fillStyle = 'rgba(80,40,20,0.15)';
+    for (var s = 0; s < 3; s++) {
+        var sx = ((s * 300 + frameCount * 0.4 - cameraX * 0.08) % (W + 200) + W + 200) % (W + 200) - 80;
+        ctx.fillRect(sx, 40 + s*20, 100, 50);
+    }
+}
+
+function drawBgSky() {
+    // Stars (very slow, 0.04x)
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    for (var st = 0; st < 50; st++) {
+        var sx = ((st * 179 - cameraX * 0.04) % W + W) % W;
+        var sy = (st * 101) % (H * 0.65);
+        ctx.fillRect(sx, sy, st % 4 === 0 ? 2 : 1, st % 4 === 0 ? 2 : 1);
+    }
+    // Distant floating islands (0.14x)
+    ctx.fillStyle = '#2a1060';
+    for (var isl = 0; isl < 4; isl++) {
+        var ix = ((isl * 310 - cameraX * 0.14) % (W + 400) + W + 400) % (W + 400) - 150;
+        var iy = 180 + isl * 28;
+        ctx.fillRect(ix, iy, 180, 28);
+        ctx.fillStyle = '#c8c8ff';
+        ctx.fillRect(ix, iy, 180, 5);
+        ctx.fillStyle = '#2a1060';
+    }
+}
+
+function drawEnvironmentFloor() {
+    var b = BIOMES[currentBiomeIdx];
+    if (b.floorType === 'water' || b.floorType === 'swamp') {
+        var wy = b.floorY;
+        ctx.fillStyle = b.waterColor;
+        ctx.fillRect(0, wy, W, H - wy);
+        // Animated wave line
+        ctx.strokeStyle = b.waterSurface;
+        ctx.lineWidth   = 3;
+        ctx.beginPath();
+        for (var x = 0; x <= W; x += 3) {
+            var wy2 = wy + Math.sin((x + frameCount * 2 + cameraX * 0.4) * 0.038) * 4;
+            x === 0 ? ctx.moveTo(x, wy2) : ctx.lineTo(x, wy2);
+        }
+        ctx.stroke();
+        ctx.lineWidth = 1;
+    } else if (b.floorType === 'lava') {
+        var ly = b.floorY;
+        var lavaGrd = ctx.createLinearGradient(0, ly, 0, H);
+        lavaGrd.addColorStop(0, '#ff4400');
+        lavaGrd.addColorStop(0.35, '#cc2000');
+        lavaGrd.addColorStop(1,   '#880000');
+        ctx.fillStyle = lavaGrd;
+        ctx.fillRect(0, ly, W, H - ly);
+        // Animated lava surface
+        ctx.strokeStyle = '#ff9900';
+        ctx.lineWidth   = 4;
+        ctx.beginPath();
+        for (var lx = 0; lx <= W; lx += 3) {
+            var ly2 = ly + Math.sin((lx + frameCount * 1.4 + cameraX * 0.25) * 0.045) * 5;
+            lx === 0 ? ctx.moveTo(lx, ly2) : ctx.lineTo(lx, ly2);
+        }
+        ctx.stroke();
+        // Glow blobs
+        ctx.fillStyle = 'rgba(255,140,0,0.55)';
+        for (var lb = 0; lb < 5; lb++) {
+            var lbx = ((lb * 160 + frameCount * 0.8) % W);
+            ctx.fillRect(lbx, ly - 3, 18 + lb * 4, 6);
+        }
+        ctx.lineWidth = 1;
+    } else if (b.floorType === 'ice') {
+        var iy = b.floorY;
+        ctx.fillStyle = '#b8dcf8';
+        ctx.fillRect(0, iy, W, H - iy);
+        ctx.fillStyle = '#daf0ff';
+        ctx.fillRect(0, iy, W, 8);
+        // Shine streaks
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        for (var sh = 0; sh < 9; sh++) {
+            var shx = ((sh * 90 - cameraX * 0.5) % W + W) % W;
+            ctx.fillRect(shx, iy + 2, 28, 3);
+        }
+    }
+    // floorType 'void': no floor drawn
+}
+
+// ==================== PLATFORM GENERATION & DRAWING ====================
+function generatePlatforms() {
+    var b = BIOMES[currentBiomeIdx];
+    while (nextPlatformX < cameraX + GEN_AHEAD) {
+        var gap = randBetween(85, 180);
+        var w   = randBetween(80, 200) + (activeUpgrades.indexOf('wider_plat') !== -1 ? 30 : 0);
+        var y;
+        if (b.floorType === 'void') {
+            y = randBetween(140, 360);
+        } else if (b.floorType === 'lava') {
+            y = randBetween(180, 340);
+        } else {
+            y = randBetween(180, 315);
+        }
+        platforms.push({ worldX:nextPlatformX, y:y, w:w, h:14, biomeIdx:currentBiomeIdx });
+        nextPlatformX += w + gap;
+    }
+}
+
+function cullPlatforms() {
+    platforms = platforms.filter(function(p) { return p.worldX + p.w > cameraX - CULL_BEHIND; });
+}
+
+function drawPlatforms() {
+    for (var i = 0; i < platforms.length; i++) {
+        var p  = platforms[i];
+        var sx = p.worldX - cameraX;
+        if (sx + p.w < -10 || sx > W + 10) continue;
+        var bi = BIOMES[p.biomeIdx] || BIOMES[currentBiomeIdx];
+
+        // Drop shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
+        ctx.fillRect(sx + 4, p.y + p.h, p.w, 5);
+
+        // Body
+        ctx.fillStyle = bi.platColor;
+        ctx.fillRect(sx, p.y, p.w, p.h);
+
+        // Top highlight
+        ctx.fillStyle = bi.platTop;
+        ctx.fillRect(sx, p.y, p.w, 4);
+
+        // Texture
+        if (p.biomeIdx <= 1) {
+            // Log rings
+            ctx.fillStyle = 'rgba(0,0,0,0.14)';
+            for (var r = 22; r < p.w; r += 26) ctx.fillRect(sx + r, p.y + 2, 3, p.h - 2);
+        } else if (p.biomeIdx === 2) {
+            // Ice glint
+            ctx.fillStyle = 'rgba(255,255,255,0.55)';
+            for (var g = 10; g < p.w; g += 32) ctx.fillRect(sx + g, p.y + 1, 14, 2);
+        } else if (p.biomeIdx === 3) {
+            // Rock cracks
+            ctx.fillStyle = 'rgba(255,100,0,0.28)';
+            for (var c = 0; c < p.w; c += 22) ctx.fillRect(sx + c, p.y + 4, 9, 4);
+        } else {
+            // Cloud wisps
+            ctx.fillStyle = 'rgba(180,160,255,0.4)';
+            for (var w2 = 8; w2 < p.w; w2 += 28) ctx.fillRect(sx + w2, p.y + 2, 16, 3);
+        }
+    }
+}
+
+// ==================== SPRITE DRAWING ====================
+function drawDuck(x, y, animFrame, invincible, shield) {
+    ctx.save();
+    if (invincible > 0 && Math.floor(invincible / 5) % 2 === 0) ctx.globalAlpha = 0.45;
+
+    var f = animFrame % 3;
+    // Body
+    ctx.fillStyle = '#f5c842';
+    ctx.fillRect(x + 2,  y + 10, 22, 15);
+    // Head
+    ctx.fillStyle = '#f5c842';
+    ctx.fillRect(x + 14, y + 2,  16, 13);
+    // Beak
+    ctx.fillStyle = '#e07820';
+    ctx.fillRect(x + 28, y + 7,  8,  5);
+    // Eye socket
+    ctx.fillStyle = '#111111';
+    ctx.fillRect(x + 24, y + 5,  4,  4);
+    // Eye highlight
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x + 25, y + 5,  2,  2);
+    // Wing — position shifts per animation frame
+    ctx.fillStyle = '#c89820';
+    if (f === 0)      ctx.fillRect(x + 4, y + 15, 14, 8);  // down
+    else if (f === 1) ctx.fillRect(x + 4, y + 12, 14, 6);  // mid
+    else              ctx.fillRect(x + 4, y + 9,  14, 6);  // up
+    // Tail
+    ctx.fillStyle = '#e0a020';
+    ctx.fillRect(x,     y + 14, 6, 8);
+    // Feet
+    ctx.fillStyle = '#e07820';
+    ctx.fillRect(x + 6,  y + 24, 8, 4);
+    ctx.fillRect(x + 15, y + 24, 8, 4);
+
+    // Shield bubble
+    if (shield) {
+        ctx.strokeStyle = 'rgba(100,200,255,0.85)';
+        ctx.lineWidth   = 3;
+        ctx.beginPath();
+        ctx.arc(x + 16, y + 14, 22, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(100,200,255,0.12)';
+        ctx.fill();
+        ctx.lineWidth = 1;
+    }
+    ctx.restore();
+}
+
+function _drawShark(sx, e) {
+    var x = sx, y = e.y;
+    ctx.save();
+    if (e.dir < 0) { ctx.translate(sx + e.w, 0); ctx.scale(-1, 1); x = 0; }
+    ctx.fillStyle = '#808898';
+    ctx.fillRect(x,      y + 6,  40, 14);
+    ctx.fillStyle = '#6a7280';
+    ctx.fillRect(x + 12, y,      10, 10); // fin
+    ctx.fillRect(x,      y + 6,   8,  5); // tail top
+    ctx.fillRect(x,      y + 11,  8,  5); // tail bot
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x + 28, y + 8,   5,  5); // eye white
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x + 30, y + 9,   3,  3);
+    ctx.fillStyle = '#ffffff';
+    for (var t = 0; t < 3; t++) ctx.fillRect(x + 20 + t*5, y + 18, 3, 3);
+    ctx.restore();
+}
+
+function _drawGator(sx, e) {
+    var x = sx, y = e.y;
+    ctx.save();
+    if (e.dir < 0) { ctx.translate(sx + e.w, 0); ctx.scale(-1, 1); x = 0; }
+    ctx.fillStyle = '#3a7d44';
+    ctx.fillRect(x,      y + 8,  48, 16);
+    ctx.fillRect(x + 38, y + 12, 14,  8); // snout
+    ctx.fillStyle = '#2d6035';
+    for (var b = 0; b < 3; b++) ctx.fillRect(x + 8 + b*12, y + 4, 8, 8); // bumps
+    ctx.fillStyle = '#ffff00';
+    ctx.fillRect(x + 30, y + 8, 5, 5);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x + 31, y + 9, 3, 3);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x + 40, y + 20, 3, 4);
+    ctx.fillRect(x + 46, y + 20, 3, 4);
+    ctx.restore();
+}
+
+function _drawPufferfish(sx, e) {
+    var inflated = e.inflated;
+    var size = inflated ? 48 : 28;
+    var x = sx + (inflated ? -10 : 0);
+    var y = e.y   + (inflated ? -10 : 0);
+    ctx.fillStyle = '#c8b820';
+    ctx.beginPath();
+    ctx.arc(x + size/2, y + size/2, size/2, 0, Math.PI*2);
+    ctx.fill();
+    if (inflated) {
+        ctx.fillStyle = '#806010';
+        var dirs = [[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]];
+        for (var d = 0; d < dirs.length; d++) {
+            ctx.fillRect(x + size/2 + dirs[d][0]*(size/2+2) - 2, y + size/2 + dirs[d][1]*(size/2+2) - 2, 5, 5);
+        }
+    }
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x + size/2 + 4, y + size/4, 5, 5);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x + size/2 + 5, y + size/4 + 1, 2, 2);
+}
+
+function _drawEel(sx, e) {
+    ctx.fillStyle = '#5a2080';
+    for (var seg = 0; seg < 5; seg++) {
+        var ex = sx + seg * 10;
+        var ey = e.y + Math.sin(frameCount * 0.12 + seg * 0.9) * 10;
+        ctx.fillRect(ex, ey, 12, 12);
+    }
+    ctx.fillStyle = '#7030a0';
+    ctx.fillRect(sx + 40, e.y, 14, 16);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(sx + 48, e.y + 2, 4, 4);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(sx + 49, e.y + 3, 2, 2);
+}
+
+function _drawSeagull(sx, e) {
+    var x = sx, y = e.y;
+    var f = e.animFrame % 2;
+    ctx.fillStyle = '#dde0e4';
+    ctx.fillRect(x + 8,  y + 4, 20, 10);
+    // Wings
+    ctx.fillStyle = '#bbbec4';
+    if (f === 0) {
+        ctx.fillRect(x,      y,     10, 8);
+        ctx.fillRect(x + 28, y,     10, 8);
+    } else {
+        ctx.fillRect(x,      y + 7, 10, 6);
+        ctx.fillRect(x + 28, y + 7, 10, 6);
+    }
+    ctx.fillStyle = '#888890';
+    ctx.fillRect(x + 24, y + 4, 10, 4);
+    ctx.fillStyle = '#ff9900';
+    ctx.fillRect(x + 28, y + 7,  6, 3);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x + 26, y + 5,  3, 3);
+}
+
+function _drawCrab(sx, e) {
+    var x = sx, y = e.y;
+    ctx.fillStyle = '#c0392b';
+    ctx.fillRect(x + 8,  y + 8,  20, 16);
+    ctx.fillRect(x,      y + 4,  10,  8); // left claw arm
+    ctx.fillRect(x + 26, y + 4,  10,  8); // right claw arm
+    ctx.fillRect(x - 4,  y,       8,  6); // left claw tip
+    ctx.fillRect(x + 32, y,       8,  6); // right claw tip
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x + 10, y + 10,  4,  4);
+    ctx.fillRect(x + 22, y + 10,  4,  4);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x + 11, y + 11,  2,  2);
+    ctx.fillRect(x + 23, y + 11,  2,  2);
+    ctx.fillStyle = '#a02020';
+    for (var l = 0; l < 3; l++) ctx.fillRect(x + 6 + l*6, y + 22, 4, 8);
+}
+
+function _drawWalrus(sx, e) {
+    var x = sx, y = e.y;
+    ctx.fillStyle = '#8090b0';
+    ctx.fillRect(x,      y + 4,  50, 24); // body
+    ctx.fillRect(x + 32, y,      20, 22); // head
+    ctx.fillStyle = '#fffff0';
+    ctx.fillRect(x + 42, y + 16,  5, 12); // tusk L
+    ctx.fillRect(x + 50, y + 16,  5, 12); // tusk R
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x + 38, y + 6,   4,  4);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x + 39, y + 7,   2,  2);
+    ctx.fillStyle = '#b0b8c8';
+    ctx.fillRect(x + 34, y + 13, 18,  2); // whiskers
+}
+
+function _drawSalamander(sx, e) {
+    var x = sx, y = e.y;
+    ctx.save();
+    if (e.dir < 0) { ctx.translate(sx + e.w, 0); ctx.scale(-1, 1); x = 0; }
+    ctx.fillStyle = '#c0301a';
+    ctx.fillRect(x + 2,  y + 8,  38, 10);
+    ctx.fillStyle = '#e04020';
+    ctx.fillRect(x + 32, y + 4,  12, 12); // head
+    ctx.fillStyle = '#a02010';
+    ctx.fillRect(x,      y + 10,  8,  6); // tail
+    ctx.fillStyle = '#ff6600';
+    for (var s = 0; s < 3; s++) ctx.fillRect(x + 8 + s*10, y + 8, 4, 10); // stripes
+    ctx.fillStyle = '#ffff00';
+    ctx.fillRect(x + 38, y + 6,   4,  4);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x + 39, y + 7,   2,  2);
+    ctx.fillStyle = '#a02010';
+    ctx.fillRect(x + 10, y + 16,  5,  6);
+    ctx.fillRect(x + 25, y + 16,  5,  6);
+    ctx.restore();
+}
+
+function drawEnemies() {
+    for (var i = 0; i < enemies.length; i++) {
+        var e  = enemies[i];
+        var sx = e.worldX - cameraX;
+        if (sx + e.w < -60 || sx > W + 60) continue;
+        switch (e.type) {
+            case 'shark':       _drawShark(sx, e);       break;
+            case 'gator':       _drawGator(sx, e);       break;
+            case 'pufferfish':  _drawPufferfish(sx, e);  break;
+            case 'eel':         _drawEel(sx, e);         break;
+            case 'seagull':     _drawSeagull(sx, e);     break;
+            case 'crab':        _drawCrab(sx, e);        break;
+            case 'walrus':      _drawWalrus(sx, e);      break;
+            case 'salamander':  _drawSalamander(sx, e);  break;
+        }
+    }
+}
+
+// ==================== COLLECTIBLE GENERATION & DRAWING ====================
+function generateCollectibles() {
+    var b = BIOMES[currentBiomeIdx];
+    while (nextCollectibleX < cameraX + GEN_AHEAD) {
+        var roll = Math.random();
+        var type = roll < 0.78 ? 'fish' : (roll < 0.91 ? 'heart' : 'feather');
+        var cy;
+        if (b.floorType === 'water' || b.floorType === 'swamp') {
+            cy = b.floorY + 18 + Math.random() * 65;
+        } else {
+            var nearby = null;
+            for (var pi = 0; pi < platforms.length; pi++) {
+                if (Math.abs(platforms[pi].worldX - nextCollectibleX) < 220) { nearby = platforms[pi]; break; }
+            }
+            cy = nearby ? nearby.y - 24 : 220 + Math.random() * 120;
+        }
+        collectibles.push({
+            type:       type,
+            worldX:     nextCollectibleX,
+            y:          cy,
+            bobOffset:  Math.random() * Math.PI * 2,
+            collected:  false
+        });
+        nextCollectibleX += 170 + Math.random() * 160;
+    }
+}
+
+function drawCollectibles() {
+    for (var i = 0; i < collectibles.length; i++) {
+        var c  = collectibles[i];
+        if (c.collected) continue;
+        var sx = c.worldX - cameraX;
+        if (sx < -16 || sx > W + 16) continue;
+        var cy = c.y + Math.sin(frameCount * 0.08 + c.bobOffset) * 3;
+
+        if (c.type === 'fish') {
+            ctx.fillStyle = '#e8a020';
+            ctx.fillRect(sx - 8,  cy - 5,  14, 10);
+            ctx.fillStyle = '#ffc840';
+            ctx.fillRect(sx - 6,  cy - 3,   8,  6);
+            ctx.fillStyle = '#e8a020';
+            ctx.fillRect(sx - 13, cy - 4,   5,  4); // tail top
+            ctx.fillRect(sx - 13, cy,        5,  4); // tail bot
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(sx + 4,  cy - 2,   2,  2); // eye
+        } else if (c.type === 'heart') {
+            ctx.fillStyle = '#e74c3c';
+            ctx.fillRect(sx - 6, cy - 6, 5, 8);
+            ctx.fillRect(sx + 1, cy - 6, 5, 8);
+            ctx.fillRect(sx - 7, cy - 2, 14, 5);
+            ctx.fillRect(sx - 5, cy + 2, 10, 4);
+            ctx.fillRect(sx - 2, cy + 5,  4, 3);
+        } else {
+            // feather
+            ctx.fillStyle = '#4488ff';
+            ctx.fillRect(sx - 3, cy - 12, 6, 20);
+            ctx.fillStyle = '#6699ff';
+            ctx.fillRect(sx - 6, cy - 7, 12, 4);
+            ctx.fillRect(sx - 7, cy - 1, 14, 4);
+        }
+    }
+}
+
+// ==================== PHASE 3 STUBS (will be replaced next phase) ====================
 function spawnEnemies()         {}
 function updateEnemies()        {}
-function generateCollectibles() {}
 function updateCollectibles()   {}
 function updatePhysics()        {}
 function updateHUD()            {}
