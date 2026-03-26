@@ -1211,13 +1211,502 @@ function drawCollectibles() {
     }
 }
 
-// ==================== PHASE 3 STUBS (will be replaced next phase) ====================
-function spawnEnemies()         {}
-function updateEnemies()        {}
-function updateCollectibles()   {}
-function updatePhysics()        {}
-function updateHUD()            {}
-function drawTitleScreen()      {
+// ==================== ENEMY SPAWNING ====================
+function spawnEnemies() {
+    while (nextEnemyX < cameraX + GEN_AHEAD) {
+        var b    = BIOMES[currentBiomeIdx];
+        var pool = b.enemies;
+        var type = pool[Math.floor(Math.random() * pool.length)];
+        var spd  = Math.min(4.0, 1.2 + distancePx * 0.00008);
+        var gap  = 360 + Math.random() * 280;
+        var wx   = nextEnemyX + gap * 0.5;
+        var e    = null;
+
+        switch (type) {
+            case 'shark':
+                e = { type:'shark', worldX:wx, y:b.floorY - 20,
+                    w:40, h:20, speed:spd, dir:Math.random()<0.5?1:-1, hp:1,
+                    patrol:{ min:wx-180, max:wx+200 } };
+                break;
+            case 'gator':
+                e = { type:'gator', worldX:wx, y:b.floorY - 24,
+                    w:48, h:24, speed:spd*0.65, dir:1, hp:2,
+                    jumpTimer:0, dy:0, onGround:true,
+                    patrol:{ min:wx-120, max:wx+180 } };
+                break;
+            case 'pufferfish':
+                e = { type:'pufferfish', worldX:wx, y:b.floorY + 15 + Math.random()*55,
+                    w:28, h:28, speed:spd*0.35, dir:1, hp:1,
+                    inflated:false, puffTimer:0, puffDuration:0,
+                    patrol:{ min:wx-90, max:wx+100 } };
+                break;
+            case 'eel':
+                e = { type:'eel', worldX:wx, y:b.floorY - 10,
+                    w:52, h:16, speed:spd*0.5, dir:1, hp:1,
+                    baseY:b.floorY - 10,
+                    patrol:{ min:wx-130, max:wx+140 } };
+                break;
+            case 'seagull':
+                e = { type:'seagull', worldX:duck.worldX + W + 80,
+                    y:55 + Math.random()*130,
+                    w:36, h:16, speed:spd*1.1, dir:-1, hp:1,
+                    diving:false, diveDy:0,
+                    animFrame:0, animTimer:0,
+                    baseY:55 + Math.random()*130 };
+                break;
+            case 'crab':
+                e = { type:'crab', worldX:wx, y:b.floorY - 24,
+                    w:36, h:24, speed:spd*0.4, dir:1, hp:1, idleTimer:0 };
+                break;
+            case 'walrus':
+                e = { type:'walrus', worldX:wx, y:b.floorY - 28,
+                    w:50, h:28, speed:spd*1.2, dir:Math.random()<0.5?1:-1, hp:2,
+                    patrol:{ min:wx-180, max:wx+200 } };
+                break;
+            case 'salamander':
+                e = { type:'salamander', worldX:wx, y:b.floorY - 18,
+                    w:40, h:18, speed:spd*0.65, dir:1, hp:1,
+                    patrol:{ min:wx-130, max:wx+150 } };
+                break;
+        }
+        if (e) enemies.push(e);
+        nextEnemyX += gap;
+    }
+}
+
+// ==================== ENEMY UPDATE ====================
+function updateEnemies() {
+    var b = BIOMES[currentBiomeIdx];
+    for (var i = enemies.length - 1; i >= 0; i--) {
+        var e  = enemies[i];
+        var sx = e.worldX - cameraX;
+
+        // Cull far behind camera
+        if (e.worldX + e.w < cameraX - CULL_BEHIND) { enemies.splice(i, 1); continue; }
+
+        // Dead — spawn FX, count kill, remove
+        if (e.hp <= 0) {
+            spawnExplosion(sx + e.w/2, e.y + e.h/2);
+            sfxKill();
+            kills++;
+            enemies.splice(i, 1);
+            continue;
+        }
+
+        // Animation timer
+        if (e.animTimer !== undefined) {
+            e.animTimer++;
+            if (e.animTimer >= 10) { e.animTimer = 0; e.animFrame = ((e.animFrame||0) + 1) % 4; }
+        }
+
+        // Type-specific movement
+        switch (e.type) {
+            case 'shark':
+            case 'walrus':
+                e.worldX += e.speed * e.dir;
+                if (e.worldX <= e.patrol.min || e.worldX + e.w >= e.patrol.max) e.dir *= -1;
+                break;
+
+            case 'salamander':
+                e.worldX += e.speed * e.dir;
+                if (e.worldX <= e.patrol.min || e.worldX + e.w >= e.patrol.max) e.dir *= -1;
+                if (frameCount % 4 === 0)
+                    spawnParticle(sx + e.w/2, e.y + e.h,
+                        (Math.random()-0.5)*1.5, -0.5 - Math.random()*1.5,
+                        18, Math.random() < 0.5 ? '#ff6600' : '#ffaa00', 3);
+                break;
+
+            case 'gator':
+                e.worldX += e.speed * e.dir;
+                if (e.worldX <= e.patrol.min || e.worldX + e.w >= e.patrol.max) e.dir *= -1;
+                e.jumpTimer++;
+                if (e.onGround && e.jumpTimer > 140 && Math.random() < 0.018) {
+                    e.dy = -7.5; e.onGround = false; e.jumpTimer = 0;
+                }
+                e.dy = (e.dy || 0) + GRAVITY * 0.55;
+                e.y += e.dy;
+                if (e.y + e.h >= b.floorY) { e.y = b.floorY - e.h; e.dy = 0; e.onGround = true; }
+                for (var pi = 0; pi < platforms.length; pi++) {
+                    var p = platforms[pi]; var psx = p.worldX - cameraX;
+                    if (sx + e.w > psx + 3 && sx + 3 < psx + p.w &&
+                        e.y + e.h >= p.y && e.y + e.h <= p.y + 18 && e.dy >= 0) {
+                        e.y = p.y - e.h; e.dy = 0; e.onGround = true;
+                    }
+                }
+                break;
+
+            case 'pufferfish':
+                e.worldX += e.speed * e.dir;
+                if (e.worldX <= e.patrol.min || e.worldX + e.w >= e.patrol.max) e.dir *= -1;
+                e.puffTimer++;
+                if (!e.inflated && e.puffTimer > 200) { e.inflated = true; e.puffTimer = 0; e.puffDuration = 90; }
+                if (e.inflated) { e.puffDuration--; if (e.puffDuration <= 0) { e.inflated = false; e.puffTimer = 0; } }
+                break;
+
+            case 'eel':
+                e.worldX += e.speed * e.dir;
+                if (e.worldX <= e.patrol.min || e.worldX + e.w >= e.patrol.max) e.dir *= -1;
+                e.y = e.baseY + Math.sin(frameCount * 0.07) * 45;
+                break;
+
+            case 'seagull':
+                e.animTimer++;
+                if (e.animTimer >= 12) { e.animTimer = 0; e.animFrame = (e.animFrame + 1) % 2; }
+                e.worldX += e.speed * e.dir;
+                var edx = duck.worldX - e.worldX;
+                if (!e.diving && Math.abs(edx) < 200 && Math.abs(edx) > 40)
+                    { e.diving = true; e.diveDy = 4.5; }
+                if (e.diving) {
+                    e.y += e.diveDy;
+                    if (e.y > 370 || e.y < 30) { e.diveDy *= -0.7; e.diving = e.y > 60; }
+                } else {
+                    e.y = e.baseY + Math.sin(frameCount * 0.04) * 14;
+                }
+                if (e.worldX + e.w < cameraX - 100) { enemies.splice(i, 1); continue; }
+                break;
+
+            case 'crab':
+                e.idleTimer++;
+                if (e.idleTimer > 100) e.idleTimer = 0;
+                if (e.idleTimer < 35) e.worldX += e.speed * 2 * e.dir;
+                else if (e.idleTimer === 35) e.dir *= -1;
+                break;
+        }
+
+        // ── Duck collision ──
+        if (duck.invincible > 0 || !duck.alive || isDying) continue;
+        sx = e.worldX - cameraX; // recalc after move
+        var ex = sx, ey = e.y, ew = e.w, eh = e.h;
+        if (e.type === 'pufferfish' && !e.inflated) continue; // no hurt when deflated
+        if (e.type === 'pufferfish' && e.inflated)  { ex -= 10; ey -= 10; ew = 48; eh = 48; }
+
+        if (DUCK_SCREEN_X + duck.w - 5 > ex + 4 && DUCK_SCREEN_X + 5 < ex + ew - 4 &&
+            duck.y + duck.h - 5 > ey + 4       && duck.y + 5 < ey + eh - 4) {
+
+            if (duck.dy < -7) {
+                // Burst kill
+                e.hp = 0;
+                duck.invincible = 24;
+                if (activeUpgrades.indexOf('damage_return') !== -1) duck.burstCharges++;
+            } else if (duck.shield) {
+                duck.shield      = false;
+                duck.invincible  = 50;
+                shakeFrames      = 5; shakeMagnitude = 4;
+                spawnFeathers(DUCK_SCREEN_X + 16, duck.y + 14);
+            } else {
+                var dmg = activeUpgrades.indexOf('tough') !== -1 ? 15 : HIT_DAMAGE;
+                duck.hp        -= dmg;
+                duck.invincible = HIT_INV_FRAMES;
+                shakeFrames     = 10; shakeMagnitude = 7;
+                sfxHit();
+                spawnFeathers(DUCK_SCREEN_X + 16, duck.y + 14);
+                noHitRun  = false;
+                duck.dy   = Math.min(duck.dy, -2);
+                if (duck.hp <= 0) { duck.hp = 0; duck.alive = false; }
+            }
+        }
+    }
+}
+
+// ==================== COLLECTIBLE UPDATE ====================
+function updateCollectibles() {
+    var magnetRange = activeUpgrades.indexOf('magnet') !== -1 ? 120 : 22;
+    for (var i = collectibles.length - 1; i >= 0; i--) {
+        var c = collectibles[i];
+        if (c.collected) { collectibles.splice(i, 1); continue; }
+        if (c.worldX < cameraX - CULL_BEHIND) { collectibles.splice(i, 1); continue; }
+        var cdx  = duck.worldX - c.worldX;
+        var cdy  = (duck.y + duck.h/2) - c.y;
+        var dist = Math.sqrt(cdx*cdx + cdy*cdy);
+        // Magnet pull
+        if (activeUpgrades.indexOf('magnet') !== -1 && dist < magnetRange && dist > 1) {
+            c.worldX += (cdx / dist) * 5;
+            c.y      += (cdy / dist) * 5;
+        }
+        // Pickup
+        if (dist < 24) {
+            c.collected = true;
+            spawnCollectFX(c.worldX - cameraX, c.y);
+            sfxCollect();
+            if      (c.type === 'fish')    fish++;
+            else if (c.type === 'heart')   duck.hp = Math.min(duck.maxHp, duck.hp + 20);
+            else if (c.type === 'feather') duck.burstCharges++;
+        }
+    }
+}
+
+// ==================== PHYSICS ====================
+var isDying = false;
+
+function updatePhysics() {
+    if (!duck.alive || isDying) return;
+
+    // Update speed
+    var maxSpd = MAX_SPEED + (activeUpgrades.indexOf('speed_boost') !== -1 ? 0.5 : 0);
+    duck.speed = Math.min(maxSpd,
+        BASE_SPEED + (duck.swiftMode ? 0.8 : 0) + distancePx * SPEED_ACCEL);
+
+    // Advance duck
+    duck.worldX += duck.speed;
+    distancePx   = Math.max(0, duck.worldX - 200);
+    cameraX      = duck.worldX - DUCK_SCREEN_X;
+
+    var b       = BIOMES[currentBiomeIdx];
+    var inWater = (b.floorType === 'water' || b.floorType === 'swamp') &&
+                  (duck.y + duck.h > b.floorY);
+
+    // Gravity
+    var effG = duck.swiftMode ? GRAVITY * 0.82 : GRAVITY;
+    if (inWater) { duck.dy += effG * 0.16; if (duck.dy > 2) duck.dy = 2; }
+    else         { duck.dy += effG;        if (duck.dy > MAX_FALL) duck.dy = MAX_FALL; }
+    duck.y += duck.dy;
+
+    // State
+    if (inWater) duck.state = 'water';
+    else if (duck.state !== 'ground') duck.state = 'air';
+
+    // ── Platform collision ──
+    var landed = false;
+    for (var pi = 0; pi < platforms.length; pi++) {
+        var p   = platforms[pi];
+        var psx = p.worldX - cameraX;
+        if (DUCK_SCREEN_X + duck.w - 2 > psx + 2 && DUCK_SCREEN_X + 2 < psx + p.w - 2) {
+            if (duck.y + duck.h >= p.y && duck.y + duck.h <= p.y + 20 && duck.dy >= 0) {
+                duck.y = p.y - duck.h; duck.dy = 0;
+                duck.state = 'ground'; duck.airJumps = 0;
+                landed = true; break;
+            }
+        }
+    }
+
+    // ── Floor collision ──
+    if (!landed) {
+        if (b.floorType === 'lava' && duck.y + duck.h >= b.floorY) {
+            duck.hp = 0; duck.alive = false;
+        } else if (b.floorType === 'ice' && duck.y + duck.h >= b.floorY) {
+            duck.y = b.floorY - duck.h; duck.dy = 0;
+            duck.state = 'ground'; duck.airJumps = 0;
+        } else if (b.floorType === 'void' && duck.y > H + 60) {
+            duck.hp = 0; duck.alive = false;
+        }
+    }
+
+    // ── Water HP regen ──
+    if (inWater) {
+        hpRegenTimer++;
+        var regenInterval = activeUpgrades.indexOf('hp_regen') !== -1
+            ? Math.floor(HP_REGEN_INTERVAL / 2) : HP_REGEN_INTERVAL;
+        if (hpRegenTimer >= regenInterval) {
+            hpRegenTimer = 0;
+            duck.hp = Math.min(duck.maxHp, duck.hp + HP_REGEN_AMOUNT);
+            sfxHpRegen();
+        }
+    } else { hpRegenTimer = 0; }
+
+    // ── Shield recharge every 3000px if upgrade owned ──
+    if (!duck.shield && activeUpgrades.indexOf('shield') !== -1) {
+        var milestone = Math.floor(distancePx / 3000);
+        var prevMile  = Math.floor((distancePx - duck.speed) / 3000);
+        if (milestone > prevMile) duck.shield = true;
+    }
+
+    // ── Canvas bounds ──
+    if (duck.y < 0) { duck.y = 0; duck.dy = Math.max(0, duck.dy); }
+
+    // ── Invincibility tick ──
+    if (duck.invincible > 0) duck.invincible--;
+
+    // ── Death ──
+    if (duck.hp <= 0 || !duck.alive) {
+        duck.hp = 0; duck.alive = false; isDying = true;
+        sfxDie(); stopMusic();
+        setTimeout(gameOver, 900);
+        return;
+    }
+
+    // ── Duck animation ──
+    duck.animTimer++;
+    if (duck.animTimer >= 10) { duck.animTimer = 0; duck.animFrame = (duck.animFrame + 1) % 3; }
+
+    // ── Burst visual trail ──
+    if (duck.dy < -5) spawnBurstFX(DUCK_SCREEN_X + 8, duck.y + 14);
+
+    // ── Systems ──
+    checkBiomeTransition();
+    if (distancePx - lastUpgradePx >= UPGRADE_EVERY_PX) {
+        lastUpgradePx += UPGRADE_EVERY_PX;
+        triggerUpgrade();
+    }
+    checkAchievements();
+    updateHUD();
+}
+
+// ==================== HUD ====================
+function updateHUD() {
+    var pct    = Math.max(0, duck.hp / duck.maxHp * 100);
+    var hpEl   = document.getElementById('hpBarInner');
+    hpEl.style.width      = pct + '%';
+    hpEl.style.background = pct > 60 ? '#2ecc71' : pct > 30 ? '#f1c40f' : '#e74c3c';
+
+    var bursts = '';
+    for (var b = 0; b < duck.burstCharges; b++) bursts += '\u26A1';
+    document.getElementById('burstDisplay').textContent  = bursts || '\u25CB';
+    document.getElementById('distanceDisplay').textContent = distMeters() + 'm';
+    document.getElementById('biomeDisplay').textContent   = BIOMES[currentBiomeIdx].name;
+    document.getElementById('fishDisplay').textContent    = '\uD83D\uDC1F ' + fish;
+    document.getElementById('killDisplay').textContent    = '\uD83D\uDC80 ' + kills;
+
+    var icons = '';
+    for (var ui = 0; ui < activeUpgrades.length; ui++) {
+        var def = null;
+        for (var di = 0; di < UPGRADE_DEFS.length; di++)
+            if (UPGRADE_DEFS[di].id === activeUpgrades[ui]) { def = UPGRADE_DEFS[di]; break; }
+        if (def) icons += def.icon + ' ';
+    }
+    document.getElementById('upgradeIcons').textContent = icons;
+}
+
+// ==================== BIOME TRANSITION ====================
+function checkBiomeTransition() {
+    var newIdx = 0;
+    for (var i = BIOMES.length - 1; i >= 0; i--) {
+        if (distancePx >= BIOMES[i].startDist * 10) { newIdx = i; break; }
+    }
+    if (newIdx !== currentBiomeIdx) {
+        currentBiomeIdx = newIdx;
+        sfxBiome();
+        startMusic(BIOMES[newIdx].musicIdx);
+        var map = { 1:'reach_swamp', 2:'reach_arctic', 3:'reach_volcanic', 4:'reach_sky' };
+        if (map[newIdx]) unlockAchievement(map[newIdx]);
+        toasts.push({ text:'Entering: ' + BIOMES[newIdx].name, timer:200 });
+        nextEnemyX = duck.worldX + 500; // brief safe zone after transition
+    }
+}
+
+// ==================== ACHIEVEMENTS ====================
+function checkAchievements() {
+    if (distMeters() >= 500)  unlockAchievement('dist_500');
+    if (distMeters() >= 2000) unlockAchievement('dist_2000');
+    if (kills >= 10)          unlockAchievement('kills_10');
+    if (activeUpgrades.length >= 3) unlockAchievement('upgrade_3');
+    if (noHitRun && distMeters() >= 500) unlockAchievement('no_hit_500');
+}
+
+// ==================== RUN MANAGEMENT ====================
+function startRun() {
+    // Reset duck
+    duck.worldX = 200; duck.y = 266; duck.dy = 0;
+    duck.speed = BASE_SPEED; duck.state = 'ground';
+    duck.hp = 100; duck.maxHp = 100; duck.burstCharges = 1;
+    duck.animFrame = 0; duck.animTimer = 0; duck.invincible = 0;
+    duck.shield = false; duck.airJumps = 0; duck.maxAirJumps = 0;
+    duck.alive = true; duck.swiftMode = false;
+
+    // Reset run state
+    fish = 0; kills = 0; distancePx = 0;
+    currentBiomeIdx = 0; lastUpgradePx = 0;
+    activeUpgrades = []; noHitRun = true;
+    toasts = []; shakeFrames = 0; shakeMagnitude = 0;
+    hpRegenTimer = 0; isDying = false;
+    runStartTime = Date.now(); frameCount = 0;
+
+    // Reset world
+    platforms = []; enemies = []; collectibles = [];
+    particles = []; bgParticles = [];
+
+    // Seed initial wide platforms so duck has somewhere to land
+    var sx = 150;
+    for (var i = 0; i < 6; i++) {
+        platforms.push({ worldX:sx, y:280, w:170, h:14, biomeIdx:0 });
+        sx += 210;
+    }
+    nextPlatformX    = sx;
+    nextEnemyX       = duck.worldX + 700;
+    nextCollectibleX = duck.worldX + 420;
+
+    cameraX = duck.worldX - DUCK_SCREEN_X;
+    startMusic(0);
+    gameState = 'PLAYING';
+    document.getElementById('hud').style.display = 'flex';
+    updateHUD();
+}
+
+function gameOver() {
+    if (gameState === 'DEAD') return;
+    stopMusic();
+    unlockAchievement('first_run');
+    if (distancePx > meta.bestDistance) meta.bestDistance = distancePx;
+    meta.totalRuns++;
+    saveMeta();
+    gameState = 'DEAD';
+    document.getElementById('hud').style.display = 'none';
+}
+
+// ==================== UPGRADE SELECTION ====================
+function triggerUpgrade() {
+    var pool = UPGRADE_DEFS.filter(function(u) {
+        if (u.id === 'double_jump' && duck.maxAirJumps >= 1) return false;
+        return true;
+    });
+    shuffleArray(pool);
+    upgradeChoices  = pool.slice(0, 3);
+    upgradeSelected = -1;
+    gameState       = 'UPGRADE';
+}
+
+function applyUpgrade(idx) {
+    var up = upgradeChoices[idx];
+    if (!up) return;
+    switch (up.id) {
+        case 'double_jump':    duck.maxAirJumps = 1;                                          break;
+        case 'shield':         duck.shield = true;                                             break;
+        case 'extra_burst':    duck.burstCharges++;                                            break;
+        case 'hp_up':          duck.maxHp += 25; duck.hp = Math.min(duck.maxHp, duck.hp+25); break;
+    }
+    if (activeUpgrades.indexOf(up.id) === -1) activeUpgrades.push(up.id);
+    sfxUpgrade();
+    checkAchievements();
+    gameState = 'PLAYING';
+    updateHUD();
+}
+
+// ==================== ABILITY SELECTION ====================
+function selectAbility(idx) {
+    if (!abilityChoices[idx]) return;
+    startRun();
+    abilityChoices[idx].apply();
+    updateHUD();
+}
+
+// ==================== INPUT ACTIONS ====================
+function doJump() {
+    if (duck.state === 'ground') {
+        duck.dy = JUMP_POWER; duck.state = 'air'; duck.airJumps = 0;
+        sfxJump();
+        spawnSplash(DUCK_SCREEN_X + 16, duck.y + duck.h, '#aaddff');
+    } else if (duck.state === 'water') {
+        duck.dy = SWIM_POWER;
+        sfxJump();
+    } else if (duck.airJumps < duck.maxAirJumps) {
+        duck.dy = JUMP_POWER; duck.airJumps++;
+        sfxJump();
+        spawnSplash(DUCK_SCREEN_X + 16, duck.y + duck.h, '#88ccff');
+    }
+}
+
+function doBurst() {
+    if (duck.burstCharges > 0) {
+        var pwr = activeUpgrades.indexOf('extended_burst') !== -1 ? BURST_POWER - 3 : BURST_POWER;
+        duck.dy = pwr;
+        duck.burstCharges--;
+        sfxBurst();
+        spawnBurstFX(DUCK_SCREEN_X + 16, duck.y + duck.h/2);
+        updateHUD();
+    }
+}
+
+// ==================== PHASE 4 STUBS ====================
+function drawTitleScreen()  {
     ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0,0,W,H);
     ctx.font = 'bold 52px Courier New'; ctx.textAlign = 'center';
     ctx.fillStyle = '#ffe066'; ctx.fillText('DUCK RUN', W/2, 180);
@@ -1227,19 +1716,10 @@ function drawTitleScreen()      {
     if (Math.floor(frameCount/30)%2===0) ctx.fillText('PRESS ANY KEY', W/2, 300);
     ctx.textAlign = 'left';
 }
-function drawAbilityPick()      {}
-function drawUpgradeScreen()    {}
-function drawDeathScreen()      {}
-function drawToasts()           {}
-function startRun()             {}
-function gameOver()             {}
-function triggerUpgrade()       {}
-function checkBiomeTransition() {}
-function checkAchievements()    {}
-function doJump()               {}
-function doBurst()              {}
-function selectAbility(i)       {}
-function applyUpgrade(i)        {}
+function drawAbilityPick()  {}
+function drawUpgradeScreen(){}
+function drawDeathScreen()  {}
+function drawToasts()       {}
 
 // ==================== INPUT ====================
 document.addEventListener('keydown', function(e) {
