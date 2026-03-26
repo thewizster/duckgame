@@ -1705,41 +1705,478 @@ function doBurst() {
     }
 }
 
-// ==================== PHASE 4 STUBS ====================
-function drawTitleScreen()  {
-    ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0,0,W,H);
-    ctx.font = 'bold 52px Courier New'; ctx.textAlign = 'center';
-    ctx.fillStyle = '#ffe066'; ctx.fillText('DUCK RUN', W/2, 180);
-    ctx.font = '22px Courier New'; ctx.fillStyle = '#aaaaff';
-    ctx.fillText('ENDLESS', W/2, 220);
-    ctx.font = '16px Courier New'; ctx.fillStyle = '#ffffff';
-    if (Math.floor(frameCount/30)%2===0) ctx.fillText('PRESS ANY KEY', W/2, 300);
+// ==================== DRAW: TITLE SCREEN ====================
+function drawTitleScreen() {
+    // Sky gradient
+    var grd = ctx.createLinearGradient(0, 0, 0, H);
+    grd.addColorStop(0, '#080818');
+    grd.addColorStop(1, '#1a1a40');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, W, H);
+
+    // Stars
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    for (var s = 0; s < 55; s++) {
+        var sx = (s * 173 + 7) % W;
+        var sy = (s * 97  + 3) % (H * 0.55);
+        ctx.fillRect(sx, sy, s % 4 === 0 ? 2 : 1, s % 4 === 0 ? 2 : 1);
+    }
+
+    // Water strip
+    var wy = 360;
+    var wgrd = ctx.createLinearGradient(0, wy, 0, H);
+    wgrd.addColorStop(0, 'rgba(20,80,200,0.7)');
+    wgrd.addColorStop(1, 'rgba(10,40,120,0.9)');
+    ctx.fillStyle = wgrd;
+    ctx.fillRect(0, wy, W, H - wy);
+    ctx.strokeStyle = '#5ab4ff';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (var wx = 0; wx <= W; wx += 3) {
+        var wvy = wy + Math.sin((wx + frameCount * 2) * 0.038) * 4;
+        wx === 0 ? ctx.moveTo(wx, wvy) : ctx.lineTo(wx, wvy);
+    }
+    ctx.stroke();
+    ctx.lineWidth = 1;
+
+    // Animated duck swimming across title
+    var tdx = ((frameCount * 1.4) % (W + 60)) - 30;
+    var tdy = wy - 28 + Math.sin(frameCount * 0.05) * 8;
+    drawDuck(tdx, tdy, Math.floor(frameCount / 10) % 3, 0, false);
+
+    // Title
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 70px Courier New';
+    ctx.fillStyle = '#000000';
+    ctx.fillText('DUCK RUN', W/2 + 3, 133);
+    ctx.fillStyle = '#ffe066';
+    ctx.fillText('DUCK RUN', W/2,     130);
+
+    ctx.font = 'bold 26px Courier New';
+    ctx.fillStyle = '#88aaff';
+    ctx.fillText('E N D L E S S', W/2, 170);
+
+    // Blink prompt
+    if (Math.floor(frameCount / 28) % 2 === 0) {
+        ctx.font = '18px Courier New';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('PRESS ANY KEY TO START', W/2, 240);
+    }
+
+    // Best run
+    ctx.font = '13px Courier New';
+    ctx.fillStyle = '#888899';
+    var best = meta.bestDistance > 0 ? Math.floor(meta.bestDistance / 10) + 'm' : '---';
+    ctx.fillText('BEST: ' + best + '   RUNS: ' + meta.totalRuns, W/2, 275);
+
+    // Achievements count
+    ctx.fillStyle = '#666677';
+    ctx.fillText(meta.achievements.length + ' / ' + ACHIEVEMENT_DEFS.length + ' achievements', W/2, 296);
+
+    // Controls hint
+    ctx.font = '12px Courier New';
+    ctx.fillStyle = '#555566';
+    ctx.fillText('SPACE: Jump / Swim     SHIFT: Burst', W/2, H - 22);
+
     ctx.textAlign = 'left';
 }
-function drawAbilityPick()  {}
-function drawUpgradeScreen(){}
-function drawDeathScreen()  {}
-function drawToasts()       {}
+
+// ==================== DRAW: ABILITY PICK ====================
+function drawAbilityPick() {
+    ctx.fillStyle = 'rgba(8,8,28,0.95)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 30px Courier New';
+    ctx.fillStyle = '#ffe066';
+    ctx.fillText('CHOOSE YOUR ABILITY', W/2, 68);
+
+    ctx.font = '14px Courier New';
+    ctx.fillStyle = '#8888aa';
+    ctx.fillText('This ability shapes your entire run', W/2, 94);
+
+    var cw = 194, ch = 180, gap = 14;
+    var totalW = abilityChoices.length * cw + (abilityChoices.length - 1) * gap;
+    var startX = (W - totalW) / 2;
+
+    for (var i = 0; i < abilityChoices.length; i++) {
+        var ab  = abilityChoices[i];
+        var cx  = startX + i * (cw + gap);
+        var cy  = 118;
+        var hot = (abilitySelected === i);
+
+        // Card bg
+        ctx.fillStyle = hot ? 'rgba(80,65,10,0.97)' : 'rgba(22,22,48,0.97)';
+        ctx.fillRect(cx, cy, cw, ch);
+        ctx.strokeStyle = hot ? '#ffe066' : '#334';
+        ctx.lineWidth   = hot ? 3 : 1;
+        ctx.strokeRect(cx, cy, cw, ch);
+        ctx.lineWidth = 1;
+
+        // Number hint
+        ctx.font = 'bold 13px Courier New';
+        ctx.fillStyle = '#ffe066';
+        ctx.textAlign = 'left';
+        ctx.fillText('[' + (i + 1) + ']', cx + 8, cy + 20);
+
+        // Name
+        ctx.font = 'bold 16px Courier New';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.fillText(ab.name, cx + cw/2, cy + 52);
+
+        // Divider
+        ctx.fillStyle = hot ? '#ffe066' : '#334';
+        ctx.fillRect(cx + 20, cy + 60, cw - 40, 1);
+
+        // Desc
+        ctx.font = '12px Courier New';
+        ctx.fillStyle = '#aaaacc';
+        wrapText(ctx, ab.desc, cx + cw/2, cy + 82, cw - 24, 17);
+    }
+
+    ctx.font = '13px Courier New';
+    ctx.fillStyle = '#555566';
+    ctx.textAlign = 'center';
+    ctx.fillText('Keys 1 / 2 / 3  or  click a card', W/2, 118 + ch + 28);
+    ctx.textAlign = 'left';
+}
+
+// ==================== DRAW: UPGRADE SCREEN ====================
+function drawUpgradeScreen() {
+    // Semi-transparent overlay (game world still visible behind)
+    ctx.fillStyle = 'rgba(4,4,18,0.82)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 32px Courier New';
+    ctx.fillStyle = '#ffe066';
+    ctx.fillText('UPGRADE!', W/2, 62);
+
+    ctx.font = '13px Courier New';
+    ctx.fillStyle = '#8888aa';
+    ctx.fillText('Choose one power-up to continue', W/2, 86);
+
+    var cw = 188, ch = 185, gap = 13;
+    var totalW = upgradeChoices.length * cw + (upgradeChoices.length - 1) * gap;
+    var startX = (W - totalW) / 2;
+
+    for (var i = 0; i < upgradeChoices.length; i++) {
+        var up  = upgradeChoices[i];
+        var cx  = startX + i * (cw + gap);
+        var cy  = 104;
+        var hot = (upgradeSelected === i);
+
+        // Card
+        ctx.fillStyle = hot ? 'rgba(70,55,8,0.98)' : 'rgba(18,18,42,0.98)';
+        ctx.fillRect(cx, cy, cw, ch);
+        ctx.strokeStyle = hot ? '#ffe066' : (up.color || '#334');
+        ctx.lineWidth   = hot ? 3 : 2;
+        ctx.strokeRect(cx, cy, cw, ch);
+        ctx.lineWidth = 1;
+
+        // Top colour bar
+        ctx.fillStyle = up.color || '#446';
+        ctx.fillRect(cx, cy, cw, 5);
+
+        // Number hint
+        ctx.font = 'bold 13px Courier New';
+        ctx.fillStyle = '#ffe066';
+        ctx.textAlign = 'left';
+        ctx.fillText('[' + (i + 1) + ']', cx + 8, cy + 22);
+
+        // Icon
+        ctx.font = '22px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(up.icon, cx + cw/2, cy + 54);
+
+        // Name
+        ctx.font = 'bold 14px Courier New';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(up.name, cx + cw/2, cy + 78);
+
+        // Divider
+        ctx.fillStyle = up.color || '#334';
+        ctx.fillRect(cx + 18, cy + 86, cw - 36, 1);
+
+        // Desc
+        ctx.font = '11px Courier New';
+        ctx.fillStyle = '#aaaacc';
+        wrapText(ctx, up.desc, cx + cw/2, cy + 106, cw - 22, 16);
+    }
+
+    ctx.font = '13px Courier New';
+    ctx.fillStyle = '#555566';
+    ctx.textAlign = 'center';
+    ctx.fillText('Keys 1 / 2 / 3  or  click a card', W/2, 104 + ch + 28);
+    ctx.textAlign = 'left';
+}
+
+// ==================== DRAW: DEATH SCREEN ====================
+function drawDeathScreen() {
+    ctx.textAlign = 'center';
+
+    // YOU DIED
+    ctx.font = 'bold 66px Courier New';
+    ctx.fillStyle = '#880000';
+    ctx.fillText('YOU DIED', W/2 + 3, 93);
+    ctx.fillStyle = '#ff3333';
+    ctx.fillText('YOU DIED', W/2,     90);
+
+    // Stats panel
+    var pw = 450, ph = 258, px = (W - pw) / 2, py = 108;
+    ctx.fillStyle = 'rgba(28,8,8,0.92)';
+    ctx.fillRect(px, py, pw, ph);
+    ctx.strokeStyle = '#550000';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(px, py, pw, ph);
+    ctx.lineWidth = 1;
+
+    var elapsed = Date.now() - runStartTime;
+    var rows = [
+        ['DISTANCE',    distMeters() + 'm'],
+        ['TIME',        formatTime(elapsed)],
+        ['BIOME',       BIOMES[currentBiomeIdx].name],
+        ['KILLS',       kills + ''],
+        ['FISH',        fish  + ''],
+        ['UPGRADES',    activeUpgrades.length + '']
+    ];
+
+    ctx.font = '14px Courier New';
+    for (var ri = 0; ri < rows.length; ri++) {
+        var ry = py + 32 + ri * 36;
+        ctx.fillStyle = '#777788';
+        ctx.textAlign = 'left';
+        ctx.fillText(rows[ri][0], px + 22, ry);
+        ctx.fillStyle = '#ffe066';
+        ctx.textAlign = 'right';
+        ctx.fillText(rows[ri][1], px + pw - 22, ry);
+    }
+
+    // New record banner
+    if (distancePx > 0 && distancePx >= meta.bestDistance) {
+        ctx.font = 'bold 15px Courier New';
+        ctx.fillStyle = '#f39c12';
+        ctx.textAlign = 'center';
+        ctx.fillText('\u2605  NEW BEST DISTANCE!  \u2605', W/2, py + ph - 16);
+    }
+
+    // Upgrades taken list
+    if (activeUpgrades.length > 0) {
+        var names = [];
+        for (var ui = 0; ui < activeUpgrades.length; ui++) {
+            for (var di = 0; di < UPGRADE_DEFS.length; di++) {
+                if (UPGRADE_DEFS[di].id === activeUpgrades[ui]) { names.push(UPGRADE_DEFS[di].name); break; }
+            }
+        }
+        ctx.font = '11px Courier New';
+        ctx.fillStyle = '#555566';
+        ctx.textAlign = 'center';
+        ctx.fillText(names.join('  \u00B7  '), W/2, py + ph + 20);
+    }
+
+    // Restart prompt
+    if (Math.floor(frameCount / 32) % 2 === 0) {
+        ctx.font = 'bold 17px Courier New';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.fillText('PRESS  R  TO  RESTART', W/2, H - 30);
+    }
+
+    ctx.textAlign = 'left';
+}
+
+// ==================== DRAW: TOASTS ====================
+function drawToasts() {
+    for (var i = toasts.length - 1; i >= 0; i--) {
+        var t = toasts[i];
+        t.timer--;
+        if (t.timer <= 0) { toasts.splice(i, 1); continue; }
+
+        var alpha = Math.min(1, t.timer / 35);
+        var tw    = ctx.measureText(t.text).width + 22;
+        var tx    = W - tw - 10;
+        var ty    = 52 + i * 34;
+
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle   = 'rgba(15,15,35,0.92)';
+        ctx.fillRect(tx, ty, tw, 26);
+        ctx.strokeStyle = '#ffe066';
+        ctx.lineWidth   = 1.5;
+        ctx.strokeRect(tx, ty, tw, 26);
+        ctx.lineWidth   = 1;
+
+        ctx.font      = 'bold 12px Courier New';
+        ctx.fillStyle = '#ffe066';
+        ctx.textAlign = 'right';
+        ctx.fillText(t.text, W - 20, ty + 17);
+
+        ctx.globalAlpha = 1;
+    }
+    ctx.textAlign = 'left';
+}
 
 // ==================== INPUT ====================
+var keyHeld = {};
+
+function goToAbilityPick() {
+    var pool = ABILITY_POOL.slice();
+    shuffleArray(pool);
+    abilityChoices  = pool.slice(0, 3);
+    abilitySelected = -1;
+    gameState = 'ABILITY_PICK';
+}
+
 document.addEventListener('keydown', function(e) {
+    if (keyHeld[e.code]) return;
+    keyHeld[e.code] = true;
     initAudio();
-    if (gameState === 'TITLE') { gameState = 'ABILITY_PICK'; }
+
+    if (gameState === 'TITLE') {
+        goToAbilityPick();
+        return;
+    }
+
+    if (gameState === 'ABILITY_PICK') {
+        if (e.code === 'Digit1') selectAbility(0);
+        if (e.code === 'Digit2') selectAbility(1);
+        if (e.code === 'Digit3') selectAbility(2);
+        return;
+    }
+
+    if (gameState === 'UPGRADE') {
+        if (e.code === 'Digit1') applyUpgrade(0);
+        if (e.code === 'Digit2') applyUpgrade(1);
+        if (e.code === 'Digit3') applyUpgrade(2);
+        return;
+    }
+
+    if (gameState === 'DEAD') {
+        if (e.code === 'KeyR' || e.code === 'Space') goToAbilityPick();
+        return;
+    }
+
+    if (gameState === 'PLAYING') {
+        if (e.code === 'Space')                             { e.preventDefault(); doJump(); }
+        if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { e.preventDefault(); doBurst(); }
+    }
 });
-canvas.addEventListener('click', function() { initAudio(); if (gameState === 'TITLE') gameState = 'ABILITY_PICK'; });
-document.getElementById('jumpBtn').addEventListener('touchstart',  function(e){ e.preventDefault(); initAudio(); }, {passive:false});
-document.getElementById('burstBtn').addEventListener('touchstart', function(e){ e.preventDefault(); initAudio(); }, {passive:false});
+
+document.addEventListener('keyup', function(e) { keyHeld[e.code] = false; });
+
+canvas.addEventListener('click', function(ev) {
+    initAudio();
+    var rect = canvas.getBoundingClientRect();
+    var mx   = (ev.clientX - rect.left) * (W / rect.width);
+    var my   = (ev.clientY - rect.top)  * (H / rect.height);
+
+    if (gameState === 'TITLE') { goToAbilityPick(); return; }
+
+    if (gameState === 'ABILITY_PICK') {
+        var acw = 194, ach = 180, agap = 14;
+        var atW = abilityChoices.length * acw + (abilityChoices.length - 1) * agap;
+        var asx = (W - atW) / 2;
+        for (var ai = 0; ai < abilityChoices.length; ai++) {
+            var acx = asx + ai * (acw + agap);
+            if (mx >= acx && mx <= acx + acw && my >= 118 && my <= 118 + ach)
+                { selectAbility(ai); return; }
+        }
+        return;
+    }
+
+    if (gameState === 'UPGRADE') {
+        var ucw = 188, uch = 185, ugap = 13;
+        var utW = upgradeChoices.length * ucw + (upgradeChoices.length - 1) * ugap;
+        var usx = (W - utW) / 2;
+        for (var ui = 0; ui < upgradeChoices.length; ui++) {
+            var ucx = usx + ui * (ucw + ugap);
+            if (mx >= ucx && mx <= ucx + ucw && my >= 104 && my <= 104 + uch)
+                { applyUpgrade(ui); return; }
+        }
+        return;
+    }
+
+    if (gameState === 'DEAD') { goToAbilityPick(); return; }
+
+    if (gameState === 'PLAYING') {
+        if (mx < W / 2) doJump(); else doBurst();
+    }
+});
+
+document.getElementById('jumpBtn').addEventListener('touchstart', function(e) {
+    e.preventDefault(); initAudio();
+    if (gameState === 'PLAYING') doJump();
+}, { passive: false });
+
+document.getElementById('burstBtn').addEventListener('touchstart', function(e) {
+    e.preventDefault(); initAudio();
+    if (gameState === 'PLAYING') doBurst();
+}, { passive: false });
 
 // ==================== GAME LOOP ====================
 function loop() {
     frameCount++;
-    ctx.fillStyle = '#1a1a2e';
-    ctx.fillRect(0, 0, W, H);
 
-    if (gameState === 'TITLE' || gameState === 'ABILITY_PICK') {
-        drawTitleScreen();
+    ctx.save();
+
+    // Screen shake
+    if (shakeFrames > 0) {
+        ctx.translate(
+            (Math.random() - 0.5) * shakeMagnitude * 2,
+            (Math.random() - 0.5) * shakeMagnitude * 2
+        );
+        shakeFrames--;
     }
 
+    if (gameState === 'TITLE') {
+        drawTitleScreen();
+
+    } else if (gameState === 'ABILITY_PICK') {
+        drawAbilityPick();
+
+    } else if (gameState === 'PLAYING' || gameState === 'UPGRADE') {
+        // World generation
+        generatePlatforms();
+        cullPlatforms();
+        spawnEnemies();
+        generateCollectibles();
+        spawnBiomeParticles();
+
+        // Logic (paused during upgrade selection)
+        if (gameState === 'PLAYING') {
+            updatePhysics();
+            updateEnemies();
+            updateCollectibles();
+        }
+        updateParticles();
+
+        // Render
+        drawBackground();
+        drawBgParticles();
+        drawEnvironmentFloor();
+        drawPlatforms();
+        drawCollectibles();
+        drawEnemies();
+        drawDuck(DUCK_SCREEN_X, duck.y, duck.animFrame, duck.invincible, duck.shield);
+        drawParticles();
+        drawToasts();
+
+        if (gameState === 'UPGRADE') drawUpgradeScreen();
+
+    } else if (gameState === 'DEAD') {
+        // Frozen world visible behind death screen
+        drawBackground();
+        drawEnvironmentFloor();
+        drawPlatforms();
+        drawEnemies();
+        ctx.fillStyle = 'rgba(0,0,0,0.62)';
+        ctx.fillRect(0, 0, W, H);
+        drawDeathScreen();
+        drawToasts();
+    }
+
+    ctx.restore();
     requestAnimationFrame(loop);
 }
 
