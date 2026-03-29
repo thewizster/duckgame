@@ -1,0 +1,2875 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Duckster: Road Rage</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #1a1a2e;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #gameContainer {
+            position: relative;
+            box-shadow: 0 0 60px rgba(255, 160, 40, 0.4);
+        }
+
+        canvas {
+            display: block;
+            border: 3px solid #ffffff;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            touch-action: none;
+        }
+
+        /* ── HUD overlay ── */
+        #hud {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            display: none;
+        }
+
+        #hudTopLeft {
+            position: absolute;
+            top: 8px; left: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        #hpBarOuter {
+            width: 130px;
+            height: 13px;
+            background: rgba(0,0,0,0.55);
+            border: 1px solid rgba(255,255,255,0.5);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        #hpBarInner {
+            height: 100%;
+            width: 100%;
+            background: #2ecc71;
+            transition: width 0.12s linear, background 0.2s;
+        }
+
+        #boostDisplay {
+            color: #ff9922;
+            font-size: 13px;
+            text-shadow: 1px 1px 0 #000;
+            letter-spacing: 2px;
+            min-height: 16px;
+        }
+
+        #upgradeIcons {
+            color: #aaddff;
+            font-size: 11px;
+            text-shadow: 1px 1px 0 #000;
+            max-width: 140px;
+            line-height: 1.4;
+        }
+
+        #hudTopCenter {
+            position: absolute;
+            top: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+        }
+
+        #distanceDisplay {
+            color: #ffffff;
+            font-size: 22px;
+            font-weight: bold;
+            text-shadow: 2px 2px 0 #000000, -1px -1px 0 #000;
+            letter-spacing: 2px;
+        }
+
+        #biomeDisplay {
+            color: #cccccc;
+            font-size: 11px;
+            text-shadow: 1px 1px 0 #000;
+            letter-spacing: 1px;
+            margin-top: 2px;
+        }
+
+        #hudTopRight {
+            position: absolute;
+            top: 8px; right: 10px;
+            text-align: right;
+        }
+
+        #cornDisplay {
+            color: #ffe066;
+            font-size: 14px;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        #killDisplay {
+            color: #ff9999;
+            font-size: 12px;
+            text-shadow: 1px 1px 0 #000;
+            margin-top: 3px;
+        }
+
+        /* ── Touch buttons ── */
+        #touchControls {
+            position: absolute;
+            bottom: 0; left: 0;
+            width: 100%; height: 110px;
+            pointer-events: auto;
+            display: none;
+        }
+
+        .touch-btn {
+            position: absolute;
+            bottom: 18px;
+            width: 140px;
+            height: 80px;
+            background: rgba(255,255,255,0.13);
+            border: 2px solid rgba(255,255,255,0.4);
+            border-radius: 12px;
+            color: #ffffff;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            font-weight: bold;
+            text-shadow: 1px 1px 0 #000;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+
+        #jumpBtn  { left: 12px; }
+        #boostBtn { right: 12px; }
+
+        @media (pointer: coarse) {
+            #touchControls { display: block; }
+        }
+    </style>
+</head>
+<body>
+<div id="gameContainer">
+    <canvas id="gameCanvas" width="800" height="500"></canvas>
+
+    <div id="hud">
+        <div id="hudTopLeft">
+            <div id="hpBarOuter"><div id="hpBarInner"></div></div>
+            <div id="boostDisplay"></div>
+            <div id="upgradeIcons"></div>
+        </div>
+        <div id="hudTopCenter">
+            <div id="distanceDisplay">0m</div>
+            <div id="biomeDisplay"></div>
+        </div>
+        <div id="hudTopRight">
+            <div id="cornDisplay">&#x1F33D; 0</div>
+            <div id="killDisplay">&#x1F480; 0</div>
+        </div>
+    </div>
+
+    <div id="touchControls">
+        <button class="touch-btn" id="jumpBtn">JUMP</button>
+        <button class="touch-btn" id="boostBtn">&#x26A1; BOOST</button>
+    </div>
+</div>
+
+<script>
+'use strict';
+
+// ==================== CANVAS SETUP ====================
+const canvas = document.getElementById('gameCanvas');
+const ctx    = canvas.getContext('2d');
+const W = 800, H = 500;
+
+// ==================== AUDIO ENGINE ====================
+let audioCtx          = null;
+let musicInterval     = null;
+let isMusicPlaying    = false;
+let musicStep         = 0;
+let currentMusicBiome = -1;
+
+function initAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function playTone(freq, type, vol, dur, delay) {
+    if (!audioCtx) return;
+    delay = delay || 0;
+    try {
+        const osc  = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime + delay);
+        gain.gain.setValueAtTime(vol, audioCtx.currentTime + delay);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + delay + dur);
+        osc.start(audioCtx.currentTime + delay);
+        osc.stop(audioCtx.currentTime + delay + dur + 0.05);
+    } catch(e) {}
+}
+
+// Note frequency table
+const N = {
+    C3:131,  D3:147,  E3:165,  F3:175,  G3:196,  A3:220,  B3:247,
+    C4:262,  D4:294,  E4:330,  F4:349,  G4:392,  A4:440,  B4:494,
+    C5:523,  D5:587,  E5:659,  F5:698,  G5:784,  A5:880,  B5:988,
+    C6:1047, D6:1175, E6:1319,
+    Eb4:311, Bb3:233, Bb4:466, Ab3:208, Ab4:415, F3s:185, Eb3:156
+};
+
+// Per-biome music: racing themes, each with distinct feel
+const BIOME_MUSIC = [
+    // 0: Country Road — bright C-major jig, upbeat drive
+    { seq:[N.C4,N.E4,N.G4,N.C5, N.G3,N.B3,N.D4,N.G4, N.A3,N.C4,N.E4,N.A4, N.F3,N.A3,N.C4,N.F4], tempo:130 },
+    // 1: Desert Highway — A-minor twang, relentless groove
+    { seq:[N.A3,N.A3,N.E4,N.A3, N.G3,N.G3,N.D4,N.G3, N.F3,N.A3,N.C4,N.A3, N.E3,N.A3,N.B3,N.E3], tempo:115 },
+    // 2: City Streets — D-minor syncopated urban pulse
+    { seq:[N.D4,N.F4,N.A4,N.D5, N.C4,N.Eb4,N.A4,N.C5, N.Bb3,N.D4,N.F4,N.Bb4, N.A3,N.C4,N.E4,N.A4], tempo:108 },
+    // 3: Mountain Pass — G major open 5ths, majestic climb
+    { seq:[N.G3,N.D4,N.G4,N.D4, N.C4,N.G4,N.C5,N.G4, N.A3,N.E4,N.A4,N.E4, N.F3,N.C4,N.F4,N.C4], tempo:148 },
+    // 4: Space Highway — ethereal C-major 7th arpeggios
+    { seq:[N.C5,N.G5,N.E5,N.C5, N.Ab4,N.Eb5,N.C5,N.Ab4, N.F4,N.C5,N.A4,N.F4, N.G4,N.D5,N.B4,N.G4], tempo:125 }
+];
+
+function startMusic(biomeIdx) {
+    if (musicInterval) { clearInterval(musicInterval); musicInterval = null; }
+    if (biomeIdx === currentMusicBiome && isMusicPlaying) return;
+    currentMusicBiome = biomeIdx;
+    isMusicPlaying    = true;
+    musicStep         = 0;
+    const entry = BIOME_MUSIC[biomeIdx] || BIOME_MUSIC[0];
+    const seq   = entry.seq;
+    const tempo = entry.tempo;
+    musicInterval = setInterval(function() {
+        if (!isMusicPlaying || !audioCtx) return;
+        const note = seq[musicStep % seq.length];
+        if (note) {
+            playTone(note, 'square', 0.07, (tempo / 1000) * 0.75);
+            if (musicStep % 4 === 0) playTone(note / 2, 'triangle', 0.05, (tempo / 1000) * 1.4);
+        }
+        musicStep++;
+    }, tempo);
+}
+
+function stopMusic() {
+    isMusicPlaying = false;
+    if (musicInterval) { clearInterval(musicInterval); musicInterval = null; }
+    currentMusicBiome = -1;
+}
+
+// ── Sound Effects ──
+function sfxJump()    { playTone(220,'square',0.10,0.06); playTone(340,'square',0.08,0.08,0.06); }
+function sfxBoost()   { playTone(150,'sawtooth',0.14,0.05); playTone(400,'sawtooth',0.10,0.12,0.04); playTone(700,'sawtooth',0.07,0.10,0.09); }
+function sfxHit()     { playTone(140,'sawtooth',0.16,0.18); playTone(80,'sawtooth',0.10,0.25); }
+function sfxDie()     { [380,280,200,130,90].forEach(function(f,i){ playTone(f,'sawtooth',0.11,0.14,i*0.11); }); }
+function sfxCollect() { playTone(900,'sine',0.09,0.06); setTimeout(function(){ playTone(1200,'sine',0.07,0.07); }, 55); }
+function sfxUpgrade() { [N.C5,N.E5,N.G5,N.C6].forEach(function(f,i){ playTone(f,'square',0.09,0.11,i*0.09); }); }
+function sfxBiome()   { [N.G4,N.C5,N.E5,N.G5].forEach(function(f,i){ playTone(f,'square',0.11,0.14,i*0.10); }); }
+function sfxKill()    { playTone(600,'square',0.08,0.05); setTimeout(function(){ playTone(400,'square',0.07,0.06); }, 55); }
+function sfxLand()    { playTone(180,'square',0.12,0.08); playTone(90,'square',0.08,0.10,0.02); }
+function sfxRamp()    { playTone(260,'sawtooth',0.10,0.05); playTone(520,'sawtooth',0.08,0.10,0.04); }
+function sfxVictory() { [N.C5,N.E5,N.G5,N.C6,N.E6].forEach(function(f,i){ playTone(f,'square',0.12,0.18,i*0.12); }); }
+function sfxHpRegen() { playTone(660,'sine',0.06,0.06); playTone(880,'sine',0.04,0.06,0.04); }
+
+// ==================== CONSTANTS ====================
+const KART_SCREEN_X    = 160;
+const GRAVITY          = 0.50;
+const MAX_FALL         = 14;
+const JUMP_POWER       = -10;
+const BOOST_SPEED      = 5.0;     // extra px/frame while boost active
+const BASE_SPEED       = 3.0;
+const MAX_SPEED        = 7.0;
+const SPEED_ACCEL      = 0.00030;
+const HIT_DAMAGE       = 25;
+const HIT_INV_FRAMES   = 80;
+const ROAD_Y           = 380;     // top of the road surface
+const UPGRADE_EVERY_PX = 5500;
+const CULL_BEHIND      = 500;
+const GEN_AHEAD        = 1000;
+const VICTORY_DIST     = 80000;   // ~8000m triggers victory
+const HP_REGEN_INTERVAL = 300;    // frames between passive road-side HP ticks
+const HP_REGEN_AMOUNT   = 4;      // HP restored per tick (on ground)
+const HARD_LAND_DY      = 9;      // dy threshold for hard-landing HP loss
+const HARD_LAND_DAMAGE  = 10;     // HP cost for hard landing without big_wheels
+const DIST_MILESTONES   = [500, 1000, 2000, 3000, 4000, 5000, 6000, 7000];
+
+// ==================== BIOME DEFINITIONS ====================
+const BIOMES = [
+    {
+        name:          'Country Road',
+        startDist:     0,
+        skyTop:        '#4a8fd4',
+        skyBot:        '#87ceeb',
+        roadColor:     '#6a6a6a',
+        roadEdge:      '#888888',
+        roadLine:      '#ffee00',
+        shoulderColor: '#5a8a30',
+        dirtColor:     '#7a9a40',
+        musicIdx:      0,
+        particle:      'dust',
+        enemies:       ['gator', 'hawk', 'turtle']
+    },
+    {
+        name:          'Desert Highway',
+        startDist:     12000,
+        skyTop:        '#b06010',
+        skyBot:        '#e8b030',
+        roadColor:     '#9a8060',
+        roadEdge:      '#b09070',
+        roadLine:      '#ffffff',
+        shoulderColor: '#c8a050',
+        dirtColor:     '#d4b060',
+        musicIdx:      1,
+        particle:      'sand',
+        enemies:       ['snake', 'vulture', 'tumbleweed']
+    },
+    {
+        name:          'City Streets',
+        startDist:     25000,
+        skyTop:        '#0a1428',
+        skyBot:        '#1e3050',
+        roadColor:     '#3a3a3a',
+        roadEdge:      '#555555',
+        roadLine:      '#ffffff',
+        shoulderColor: '#2a2a2a',
+        dirtColor:     '#404040',
+        musicIdx:      2,
+        particle:      'rain',
+        enemies:       ['taxi', 'pigeon', 'raccoon']
+    },
+    {
+        name:          'Mountain Pass',
+        startDist:     40000,
+        skyTop:        '#2a3860',
+        skyBot:        '#6a8ab8',
+        roadColor:     '#585858',
+        roadEdge:      '#888888',
+        roadLine:      '#ffffff',
+        shoulderColor: '#d8d8d8',
+        dirtColor:     '#e8e8e8',
+        musicIdx:      3,
+        particle:      'snow',
+        enemies:       ['yeti', 'eagle', 'boulder']
+    },
+    {
+        name:          'Space Highway',
+        startDist:     58000,
+        skyTop:        '#000008',
+        skyBot:        '#08041a',
+        roadColor:     '#181830',
+        roadEdge:      '#2a2a50',
+        roadLine:      '#44ff88',
+        shoulderColor: '#0a0a1a',
+        dirtColor:     '#0c0c22',
+        musicIdx:      4,
+        particle:      'star',
+        enemies:       ['ufo', 'asteroid', 'drone']
+    }
+];
+
+// ==================== UPGRADE DEFINITIONS ====================
+const UPGRADE_DEFS = [
+    { id:'double_jump',    name:'Suspension Springs', desc:'Jump once more while airborne',             icon:'\u2191\u2191', color:'#3498db' },
+    { id:'roll_cage',      name:'Roll Cage',          desc:'Absorb one hit, then recharges at 3000m',   icon:'\u25A1',       color:'#1abc9c' },
+    { id:'turbo_engine',   name:'Turbo Engine',       desc:'+0.6 max speed permanently',               icon:'>>',           color:'#e67e22' },
+    { id:'off_road_tires', name:'Off-Road Tires',     desc:'Ramp launches are 35% higher',             icon:'/\\/',         color:'#27ae60' },
+    { id:'extra_boost',    name:'Nitro Tank',         desc:'+1 boost charge',                          icon:'+N',           color:'#f1c40f' },
+    { id:'magnet',         name:'Magnet Bumper',      desc:'Auto-collect items within 130px',          icon:'(())',         color:'#9b59b6' },
+    { id:'exhaust_fire',   name:'Exhaust Fire',       desc:'Boost use blasts nearby enemies',          icon:'><',           color:'#e74c3c' },
+    { id:'rocket_boost',   name:'Rocket Boost',       desc:'Boost speed +2 and duration +50%',         icon:'/\\',          color:'#16a085' },
+    { id:'big_wheels',     name:'Monster Wheels',     desc:'Hard landings deal no self-damage',        icon:'OO',           color:'#8e44ad' },
+    { id:'hp_up',          name:'Duck Armor',         desc:'+25 max HP and restore 25 HP',             icon:'<3',           color:'#c0392b' }
+];
+
+// ==================== ACHIEVEMENT DEFINITIONS ====================
+const ACHIEVEMENT_DEFS = [
+    { id:'first_run',      name:'First Lap',       desc:'Complete your first run'               },
+    { id:'dist_500',       name:'Half Klick',       desc:'Reach 500m in one run'                 },
+    { id:'dist_2000',      name:'Road Warrior',     desc:'Reach 2000m in one run'                },
+    { id:'reach_desert',   name:'Desert Drifter',   desc:'Enter the Desert Highway'              },
+    { id:'reach_city',     name:'Street Racer',     desc:'Enter the City Streets'                },
+    { id:'reach_mountain', name:'Summit Seeker',    desc:'Enter the Mountain Pass'               },
+    { id:'reach_space',    name:'Star Duck',        desc:'Enter the Space Highway'               },
+    { id:'kills_10',       name:'Road Bully',       desc:'Defeat 10 enemies in one run'          },
+    { id:'upgrade_3',      name:'Pit Crew',         desc:'Take 3 upgrades in one run'            },
+    { id:'no_hit_500',     name:'Clean Run',        desc:'Reach 500m without taking damage'      },
+    { id:'victory',        name:'Finish Line!',     desc:'Race all the way to victory'           }
+];
+
+// ==================== STARTING ABILITY POOL ====================
+const ABILITY_POOL = [
+    {
+        name: 'Speed Demon',
+        desc: 'Start with +0.8 base speed and slightly lower gravity.',
+        apply: function() { kart.speed = BASE_SPEED + 0.8; kart.swiftMode = true; }
+    },
+    {
+        name: 'Tank Duck',
+        desc: '+25 max HP. Take only 15 damage per hit.',
+        apply: function() { kart.maxHp += 25; kart.hp += 25; activeUpgrades.push('tough'); }
+    },
+    {
+        name: 'Nitro Duck',
+        desc: 'Start with 3 boost charges.',
+        apply: function() { kart.boostCharges = 3; }
+    },
+    {
+        name: 'Rally Duck',
+        desc: 'Start with Suspension Springs (double jump) active.',
+        apply: function() { kart.maxAirJumps = 1; activeUpgrades.push('double_jump'); }
+    },
+    {
+        name: 'Mechanic Duck',
+        desc: 'Start with Roll Cage shield and Magnet Bumper active.',
+        apply: function() { kart.shield = true; activeUpgrades.push('roll_cage'); activeUpgrades.push('magnet'); }
+    }
+];
+
+// ==================== META-PROGRESSION ====================
+const META_KEY = 'duckster_meta';
+
+function loadMeta() {
+    try {
+        const raw = localStorage.getItem(META_KEY);
+        if (!raw) return { bestDistance:0, totalRuns:0, achievements:[] };
+        const m = JSON.parse(raw);
+        if (!m.achievements)                m.achievements = [];
+        if (typeof m.bestDistance !== 'number') m.bestDistance = 0;
+        if (typeof m.totalRuns    !== 'number') m.totalRuns    = 0;
+        return m;
+    } catch(e) {
+        return { bestDistance:0, totalRuns:0, achievements:[] };
+    }
+}
+
+function saveMeta() {
+    try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch(e) {}
+}
+
+function hasAchievement(id) { return meta.achievements.indexOf(id) !== -1; }
+
+function unlockAchievement(id) {
+    if (hasAchievement(id)) return;
+    meta.achievements.push(id);
+    saveMeta();
+    const def = ACHIEVEMENT_DEFS.filter(function(a){ return a.id === id; })[0];
+    if (def) toasts.push({ text:'ACHIEVEMENT: ' + def.name, timer:220 });
+}
+
+let meta = loadMeta();
+
+// ==================== GAME STATE ====================
+let gameState    = 'TITLE';
+let cameraX      = 0;
+let frameCount   = 0;
+
+// Run-level state (reset each run)
+let corn            = 0;
+let kills           = 0;
+let distancePx      = 0;
+let runStartTime    = 0;
+let currentBiomeIdx = 0;
+let lastUpgradePx   = 0;
+let activeUpgrades  = [];
+let noHitRun        = true;
+
+// Screen shake
+let shakeFrames    = 0;
+let shakeMagnitude = 0;
+
+// Toast notifications
+let toasts = [];
+
+// Upgrade / ability selection
+let upgradeChoices  = [];
+let upgradeSelected = -1;
+let abilityChoices  = [];
+let abilitySelected = -1;
+
+// Stage 4: polish state
+let biomeFlash        = 0;      // frames of biome-transition overlay remaining
+let nextMilestoneIdx  = 0;      // index into DIST_MILESTONES
+let mouseX            = 0;
+let mouseY            = 0;
+let hpRegenTimer      = 0;      // frames since last passive HP tick
+let lastVictoryFirework = 0;    // frame of last firework spawn on victory screen
+let victoryInputLock  = 0;      // frames remaining before victory screen accepts restart input
+
+// ── Kart (duck driving a go-kart) ──
+const kart = {
+    worldX: 0, y: 0, w: 52, h: 32,
+    dy: 0, speed: BASE_SPEED,
+    state: 'ground',    // 'ground' | 'air'
+    hp: 100, maxHp: 100,
+    boostCharges: 1,
+    boostTimer: 0,      // frames of active boost remaining
+    animFrame: 0, animTimer: 0,
+    invincible: 0,
+    shield: false,
+    airJumps: 0, maxAirJumps: 0,
+    alive: true,
+    swiftMode: false
+};
+
+// World object arrays (populated in Stage 2 & 3)
+let obstacles    = [];
+let enemies      = [];
+let collectibles = [];
+let particles    = [];
+let bgParticles  = [];
+
+// World generation cursors
+let nextObstacleX    = 600;
+let nextEnemyX       = 800;
+let nextCollectibleX = 450;
+
+// ==================== UTILITY ====================
+function randBetween(a, b) { return a + Math.random() * (b - a); }
+function randInt(a, b)     { return Math.floor(randBetween(a, b + 1)); }
+
+function shuffleArray(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    }
+    return arr;
+}
+
+function wrapText(c, text, cx, y, maxW, lineH) {
+    const words = text.split(' ');
+    let line = '';
+    for (let i = 0; i < words.length; i++) {
+        const test = line + words[i] + ' ';
+        if (c.measureText(test).width > maxW && line !== '') {
+            c.fillText(line.trim(), cx, y);
+            line = words[i] + ' ';
+            y += lineH;
+        } else { line = test; }
+    }
+    if (line.trim()) c.fillText(line.trim(), cx, y);
+}
+
+function formatTime(ms) {
+    const s = Math.floor(ms / 1000);
+    return Math.floor(s/60) + ':' + (s%60 < 10 ? '0' : '') + (s%60);
+}
+
+function distMeters() { return Math.floor(distancePx / 10); }
+
+// ==================== PARTICLE SYSTEM ====================
+function spawnParticle(x, y, dx, dy, life, color, size) {
+    particles.push({ x:x, y:y, dx:dx, dy:dy, life:life, maxLife:life, color:color, size:size });
+}
+
+function spawnDust(x, y) {
+    for (var i = 0; i < 6; i++) {
+        spawnParticle(x + (Math.random()-0.5)*14, y,
+            -1.5 - Math.random()*2.5, -0.3 - Math.random()*1.2,
+            14 + Math.random()*14, '#c8b090', 2 + Math.random()*2);
+    }
+}
+
+function spawnSparks(x, y) {
+    var cols = ['#ff8800','#ffdd00','#ff4400','#ffaa00'];
+    for (var i = 0; i < 10; i++) {
+        var angle = Math.random() * Math.PI * 2;
+        var spd   = 1 + Math.random() * 4;
+        spawnParticle(x, y, Math.cos(angle)*spd, Math.sin(angle)*spd - 1,
+            16 + Math.random()*16, cols[i % cols.length], 2 + Math.random()*2);
+    }
+}
+
+function spawnFeathers(x, y) {
+    var cols = ['#f5c842','#c89820','#f0e040','#a07010'];
+    for (var i = 0; i < 8; i++) {
+        var angle = Math.random() * Math.PI * 2;
+        var spd   = 1 + Math.random() * 4;
+        spawnParticle(x, y, Math.cos(angle)*spd, Math.sin(angle)*spd - 1,
+            28 + Math.random()*28, cols[i % cols.length], 3 + Math.random()*3);
+    }
+}
+
+function spawnCollectFX(x, y) {
+    for (var i = 0; i < 8; i++) {
+        var angle = (i / 8) * Math.PI * 2;
+        spawnParticle(x, y, Math.cos(angle)*3, Math.sin(angle)*3 - 0.5, 22, '#ffe066', 3);
+    }
+}
+
+function spawnExplosion(x, y) {
+    var cols = ['#ff6600','#ffaa00','#ffdd00','#ff3300','#ffffff'];
+    for (var i = 0; i < 16; i++) {
+        var angle = Math.random() * Math.PI * 2;
+        var spd   = 1 + Math.random() * 5;
+        spawnParticle(x, y, Math.cos(angle)*spd, Math.sin(angle)*spd - 1.5,
+            22 + Math.random()*22, cols[Math.floor(Math.random()*cols.length)], 2 + Math.random()*4);
+    }
+}
+
+function spawnBoostFX(x, y) {
+    var cols = ['#ff8800','#ffcc00','#ff4400','#ffee88'];
+    for (var i = 0; i < 14; i++) {
+        spawnParticle(x - Math.random()*16, y + (Math.random()-0.5)*10,
+            -2 - Math.random()*5, (Math.random()-0.5)*1.5,
+            10 + Math.random()*14, cols[i % cols.length], 2 + Math.random()*3);
+    }
+}
+
+function spawnRocketFlame(x, y) {
+    var cols = ['#ff6600','#ffaa00','#ffee00','#ff3300','#ffffff'];
+    for (var i = 0; i < 5; i++) {
+        spawnParticle(x - Math.random()*10, y + (Math.random()-0.5)*5,
+            -1.5 - Math.random()*3.5, (Math.random()-0.5)*0.8,
+            8 + Math.random()*8, cols[i % cols.length], 2 + Math.random()*2);
+    }
+}
+
+function updateParticles() {
+    for (var i = particles.length - 1; i >= 0; i--) {
+        var p = particles[i];
+        p.x  += p.dx;
+        p.y  += p.dy;
+        p.dy += 0.10;
+        p.life--;
+        if (p.life <= 0) particles.splice(i, 1);
+    }
+    for (var j = bgParticles.length - 1; j >= 0; j--) {
+        var b = bgParticles[j];
+        b.x += b.dx;
+        b.y += b.dy;
+        b.life--;
+        if (b.life <= 0) bgParticles.splice(j, 1);
+    }
+}
+
+function drawParticles() {
+    for (var i = 0; i < particles.length; i++) {
+        var p = particles[i];
+        ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+        ctx.fillStyle   = p.color;
+        ctx.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+}
+
+function drawBgParticles() {
+    for (var i = 0; i < bgParticles.length; i++) {
+        var p = bgParticles[i];
+        ctx.globalAlpha = Math.min(1, p.life / 40) * 0.75;
+        ctx.fillStyle   = p.color;
+        ctx.fillRect(p.x, p.y, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+}
+
+function spawnBiomeParticles() {
+    var b = BIOMES[currentBiomeIdx];
+    if (frameCount % 3 !== 0) return;
+    switch (b.particle) {
+        case 'dust':
+            if (Math.random() < 0.20)
+                bgParticles.push({ x:Math.random()*W, y:ROAD_Y - 4,
+                    dx:(Math.random()-0.5)*1.5 - 0.5, dy:-0.5-Math.random()*0.8,
+                    life:25+Math.random()*20, size:3, color:'#c8b090' });
+            break;
+        case 'sand':
+            if (Math.random() < 0.40)
+                bgParticles.push({ x:Math.random()*W, y:ROAD_Y + Math.random()*30,
+                    dx:-0.8-Math.random()*2, dy:-0.3-Math.random()*0.5,
+                    life:28+Math.random()*22, size:2, color:'#d4b060' });
+            break;
+        case 'rain':
+            if (Math.random() < 0.60)
+                bgParticles.push({ x:Math.random()*W, y:-4,
+                    dx:-0.8, dy:7+Math.random()*4,
+                    life:55+Math.random()*35, size:1, color:'rgba(160,190,230,0.65)' });
+            break;
+        case 'snow':
+            if (Math.random() < 0.40)
+                bgParticles.push({ x:Math.random()*W, y:-4,
+                    dx:(Math.random()-0.5)*0.8, dy:1+Math.random()*2,
+                    life:180+Math.random()*120, size:2+Math.floor(Math.random()*2), color:'#e8f4ff' });
+            break;
+        case 'star':
+            if (Math.random() < 0.06)
+                bgParticles.push({ x:Math.random()*W, y:Math.random()*(H*0.72),
+                    dx:(Math.random()-0.5)*0.3, dy:0,
+                    life:140+Math.random()*100, size:2,
+                    color:Math.random()<0.6?'#ffffff':'#88ccff' });
+            break;
+    }
+}
+
+// ==================== HUD ====================
+function updateHUD() {
+    var pct  = Math.max(0, kart.hp / kart.maxHp * 100);
+    var hpEl = document.getElementById('hpBarInner');
+    hpEl.style.width      = pct + '%';
+    hpEl.style.background = pct > 60 ? '#2ecc71' : pct > 30 ? '#f1c40f' : '#e74c3c';
+
+    var boosts = '';
+    for (var i = 0; i < kart.boostCharges; i++) boosts += '\u26A1';
+    if (kart.boostTimer > 0) boosts += '\u25BA';
+    document.getElementById('boostDisplay').textContent  = boosts || '\u25CB';
+    document.getElementById('distanceDisplay').textContent = distMeters() + 'm';
+    document.getElementById('biomeDisplay').textContent   = BIOMES[currentBiomeIdx].name;
+    document.getElementById('cornDisplay').textContent    = '\uD83C\uDF3D ' + corn;
+    document.getElementById('killDisplay').textContent    = '\uD83D\uDC80 ' + kills;
+
+    var icons = '';
+    for (var ui = 0; ui < activeUpgrades.length; ui++) {
+        var def = null;
+        for (var di = 0; di < UPGRADE_DEFS.length; di++)
+            if (UPGRADE_DEFS[di].id === activeUpgrades[ui]) { def = UPGRADE_DEFS[di]; break; }
+        if (def) icons += def.icon + ' ';
+    }
+    document.getElementById('upgradeIcons').textContent = icons;
+}
+
+// ==================== BIOME TRANSITION ====================
+function checkBiomeTransition() {
+    var newIdx = 0;
+    for (var i = BIOMES.length - 1; i >= 0; i--) {
+        if (distancePx >= BIOMES[i].startDist) { newIdx = i; break; }
+    }
+    if (newIdx !== currentBiomeIdx) {
+        currentBiomeIdx = newIdx;
+        sfxBiome();
+        startMusic(BIOMES[newIdx].musicIdx);
+        var map = { 1:'reach_desert', 2:'reach_city', 3:'reach_mountain', 4:'reach_space' };
+        if (map[newIdx]) unlockAchievement(map[newIdx]);
+        toasts.push({ text:'Entering: ' + BIOMES[newIdx].name, timer:200 });
+        biomeFlash = 30;
+        nextEnemyX = kart.worldX + 600; // safe zone after transition
+    }
+}
+
+// ==================== ACHIEVEMENTS ====================
+const MILESTONE_LABELS = ['500m','1km','2km','3km','4km','5km','6km','7km'];
+function checkAchievements() {
+    if (distMeters() >= 500)  unlockAchievement('dist_500');
+    if (distMeters() >= 2000) unlockAchievement('dist_2000');
+    if (kills >= 10)          unlockAchievement('kills_10');
+    if (activeUpgrades.length >= 3) unlockAchievement('upgrade_3');
+    if (noHitRun && distMeters() >= 500) unlockAchievement('no_hit_500');
+
+    // Distance milestone toasts
+    while (nextMilestoneIdx < DIST_MILESTONES.length &&
+           distancePx >= DIST_MILESTONES[nextMilestoneIdx]) {
+        toasts.push({ text: MILESTONE_LABELS[nextMilestoneIdx] + ' — Keep going!', timer: 160 });
+        nextMilestoneIdx++;
+    }
+
+    if (distancePx >= VICTORY_DIST) {
+        if (gameState === 'PLAYING') {
+            unlockAchievement('victory');
+            stopMusic();
+            sfxVictory();
+            gameState = 'VICTORY';
+            victoryInputLock = 180; // ~3 seconds before restart is accepted
+            document.getElementById('hud').style.display = 'none';
+        }
+    }
+}
+
+// ==================== PHYSICS ====================
+var isDying = false;
+
+function updatePhysics() {
+    if (!kart.alive || isDying) return;
+
+    // Speed ramp-up over distance
+    var maxSpd = MAX_SPEED + (activeUpgrades.indexOf('turbo_engine') !== -1 ? 0.6 : 0);
+    kart.speed = Math.min(maxSpd,
+        BASE_SPEED + (kart.swiftMode ? 0.8 : 0) + distancePx * SPEED_ACCEL);
+
+    // Active boost adds extra speed for boostTimer frames
+    if (kart.boostTimer > 0) {
+        var boostSpd = BOOST_SPEED + (activeUpgrades.indexOf('rocket_boost') !== -1 ? 2 : 0);
+        kart.worldX += boostSpd;
+        kart.boostTimer--;
+        if (frameCount % 2 === 0) spawnBoostFX(KART_SCREEN_X - 4, kart.y + kart.h - 6);
+    }
+
+    // Advance kart
+    kart.worldX += kart.speed;
+    distancePx   = Math.max(0, kart.worldX - 200);
+    cameraX      = kart.worldX - KART_SCREEN_X;
+
+    // Gravity
+    var effG = kart.swiftMode ? GRAVITY * 0.85 : GRAVITY;
+    kart.dy += effG;
+    if (kart.dy > MAX_FALL) kart.dy = MAX_FALL;
+    kart.y += kart.dy;
+
+    // Road floor collision
+    if (kart.y + kart.h >= ROAD_Y) {
+        if (kart.state === 'air' && kart.dy > 2) {
+            sfxLand();
+            spawnDust(KART_SCREEN_X + kart.w / 2, ROAD_Y);
+            // Hard landing damage (negated by big_wheels upgrade)
+            if (kart.dy > HARD_LAND_DY && activeUpgrades.indexOf('big_wheels') === -1) {
+                kart.hp -= HARD_LAND_DAMAGE;
+                shakeFrames = 5; shakeMagnitude = 4;
+                sfxHit(); noHitRun = false;
+                if (kart.hp <= 0) { kart.hp = 0; kart.alive = false; }
+            }
+        }
+        kart.y     = ROAD_Y - kart.h;
+        kart.dy    = 0;
+        kart.state = 'ground';
+        kart.airJumps = 0;
+    }
+
+    // Passive HP regen while on ground
+    if (kart.state === 'ground' && kart.hp < kart.maxHp) {
+        hpRegenTimer++;
+        if (hpRegenTimer >= HP_REGEN_INTERVAL) {
+            hpRegenTimer = 0;
+            kart.hp = Math.min(kart.maxHp, kart.hp + HP_REGEN_AMOUNT);
+            sfxHpRegen();
+            updateHpBar();
+        }
+    } else if (kart.state !== 'ground') {
+        hpRegenTimer = 0;
+    }
+
+    // ── Obstacle collision ──
+    checkObstacleCollisions();
+
+    // Canvas top clamp
+    if (kart.y < 0) { kart.y = 0; kart.dy = Math.max(0, kart.dy); }
+
+    // Invincibility tick
+    if (kart.invincible > 0) kart.invincible--;
+
+    // Rocket flame while airborne or boosting
+    if ((kart.state === 'air' || kart.boostTimer > 0) && frameCount % 2 === 0) {
+        spawnRocketFlame(KART_SCREEN_X - 2, kart.y + kart.h - 6);
+    }
+
+    // Tire dust while on ground
+    if (kart.state === 'ground' && frameCount % 5 === 0) {
+        spawnDust(KART_SCREEN_X + 6, ROAD_Y - 2);
+    }
+
+    // Shield recharge at 3000px milestone intervals
+    if (!kart.shield && activeUpgrades.indexOf('roll_cage') !== -1) {
+        var milestone = Math.floor(distancePx / 3000);
+        var prevMile  = Math.floor((distancePx - kart.speed) / 3000);
+        if (milestone > prevMile) kart.shield = true;
+    }
+
+    // Death check
+    if (kart.hp <= 0 || !kart.alive) {
+        kart.hp = 0; kart.alive = false; isDying = true;
+        sfxDie(); stopMusic();
+        setTimeout(gameOver, 900);
+        return;
+    }
+
+    // Kart animation
+    kart.animTimer++;
+    if (kart.animTimer >= 8) { kart.animTimer = 0; kart.animFrame = (kart.animFrame + 1) % 4; }
+
+    // Systems
+    checkBiomeTransition();
+    if (distancePx - lastUpgradePx >= UPGRADE_EVERY_PX) {
+        lastUpgradePx += UPGRADE_EVERY_PX;
+        triggerUpgrade();
+    }
+    checkAchievements();
+    updateHUD();
+}
+
+// ==================== RUN MANAGEMENT ====================
+function startRun() {
+    kart.worldX = 200; kart.y = ROAD_Y - kart.h; kart.dy = 0;
+    kart.speed = BASE_SPEED; kart.state = 'ground';
+    kart.hp = 100; kart.maxHp = 100; kart.boostCharges = 1; kart.boostTimer = 0;
+    kart.animFrame = 0; kart.animTimer = 0; kart.invincible = 0;
+    kart.shield = false; kart.airJumps = 0; kart.maxAirJumps = 0;
+    kart.alive = true; kart.swiftMode = false;
+
+    corn = 0; kills = 0; distancePx = 0;
+    currentBiomeIdx = 0; lastUpgradePx = 0;
+    activeUpgrades = []; noHitRun = true;
+    toasts = []; shakeFrames = 0; shakeMagnitude = 0;
+    isDying = false; runStartTime = Date.now(); frameCount = 0;
+    biomeFlash = 0; nextMilestoneIdx = 0; hpRegenTimer = 0; lastVictoryFirework = 0; victoryInputLock = 0;
+
+    obstacles = []; enemies = []; collectibles = [];
+    particles = []; bgParticles = [];
+
+    nextObstacleX    = 500;
+    nextEnemyX       = kart.worldX + 800;
+    nextCollectibleX = kart.worldX + 400;
+
+    cameraX = kart.worldX - KART_SCREEN_X;
+    startMusic(0);
+    gameState = 'PLAYING';
+    document.getElementById('hud').style.display = 'flex';
+    updateHUD();
+}
+
+function gameOver() {
+    if (gameState === 'DEAD' || gameState === 'VICTORY') return;
+    stopMusic();
+    unlockAchievement('first_run');
+    if (distancePx > meta.bestDistance) meta.bestDistance = distancePx;
+    meta.totalRuns++;
+    saveMeta();
+    gameState = 'DEAD';
+    document.getElementById('hud').style.display = 'none';
+}
+
+// ==================== UPGRADE SELECTION ====================
+function triggerUpgrade() {
+    var pool = UPGRADE_DEFS.filter(function(u) {
+        if (u.id === 'double_jump' && kart.maxAirJumps >= 1) return false;
+        return true;
+    });
+    shuffleArray(pool);
+    upgradeChoices  = pool.slice(0, 3);
+    upgradeSelected = -1;
+    gameState       = 'UPGRADE';
+}
+
+function applyUpgrade(idx) {
+    var up = upgradeChoices[idx];
+    if (!up) return;
+    switch (up.id) {
+        case 'double_jump': kart.maxAirJumps = 1;                                             break;
+        case 'roll_cage':   kart.shield = true;                                                break;
+        case 'extra_boost': kart.boostCharges++;                                               break;
+        case 'hp_up':       kart.maxHp += 25; kart.hp = Math.min(kart.maxHp, kart.hp + 25); break;
+    }
+    if (activeUpgrades.indexOf(up.id) === -1) activeUpgrades.push(up.id);
+    sfxUpgrade();
+    checkAchievements();
+    gameState = 'PLAYING';
+    updateHUD();
+}
+
+// ==================== ABILITY SELECTION ====================
+function selectAbility(idx) {
+    if (!abilityChoices[idx]) return;
+    startRun();
+    abilityChoices[idx].apply();
+    updateHUD();
+}
+
+// ==================== INPUT ACTIONS ====================
+function doJump() {
+    if (kart.state === 'ground') {
+        kart.dy = JUMP_POWER; kart.state = 'air'; kart.airJumps = 0;
+        sfxJump();
+        spawnDust(KART_SCREEN_X + kart.w / 2, ROAD_Y);
+        spawnRocketFlame(KART_SCREEN_X - 4, kart.y + kart.h - 4);
+    } else if (kart.airJumps < kart.maxAirJumps) {
+        kart.dy = JUMP_POWER * 0.85; kart.airJumps++;
+        sfxJump();
+        spawnRocketFlame(KART_SCREEN_X - 4, kart.y + kart.h - 4);
+    }
+}
+
+function doBoost() {
+    if (kart.boostCharges > 0) {
+        var dur = activeUpgrades.indexOf('rocket_boost') !== -1 ? 30 : 20;
+        kart.boostTimer = dur;
+        kart.boostCharges--;
+        sfxBoost();
+        spawnBoostFX(KART_SCREEN_X - 6, kart.y + kart.h / 2);
+        updateHUD();
+    }
+}
+
+// ==================== DRAW: BACKGROUNDS (parallax per biome) ====================
+function drawBackground() {
+    var b = BIOMES[currentBiomeIdx];
+
+    // Sky gradient
+    var grd = ctx.createLinearGradient(0, 0, 0, ROAD_Y);
+    grd.addColorStop(0, b.skyTop);
+    grd.addColorStop(1, b.skyBot);
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, W, ROAD_Y);
+
+    ctx.save();
+    switch (currentBiomeIdx) {
+        case 0: drawBgCountryRoad(); break;
+        case 1: drawBgDesert();      break;
+        case 2: drawBgCity();        break;
+        case 3: drawBgMountain();    break;
+        case 4: drawBgSpace();       break;
+    }
+    ctx.restore();
+}
+
+function drawBgCountryRoad() {
+    // Layer 1 (0.10x): fluffy clouds
+    ctx.fillStyle = 'rgba(255,255,255,0.80)';
+    for (var c = 0; c < 5; c++) {
+        var cx = ((c * 320 - cameraX * 0.10) % (W + 350) + W + 350) % (W + 350) - 150;
+        var cy = 28 + (c % 3) * 24;
+        ctx.fillRect(cx,      cy,      110 + c*10, 24);
+        ctx.fillRect(cx + 20, cy - 16, 65,         18);
+        ctx.fillRect(cx + 60, cy - 10, 40,         14);
+    }
+    // Layer 2 (0.20x): rolling hills
+    ctx.fillStyle = '#4a7a28';
+    var hOff = (-(cameraX * 0.20)) % (W + 400);
+    var hpts = [[0,260],[100,200],[240,230],[380,180],[520,220],[660,170],[800,210],[940,260]];
+    ctx.beginPath();
+    ctx.moveTo(hOff, ROAD_Y);
+    for (var h = 0; h < hpts.length; h++) ctx.lineTo(hOff + hpts[h][0], hpts[h][1]);
+    ctx.lineTo(hOff + W, ROAD_Y); ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(hOff + W, ROAD_Y);
+    for (var h2 = 0; h2 < hpts.length; h2++) ctx.lineTo(hOff + W + hpts[h2][0], hpts[h2][1]);
+    ctx.lineTo(hOff + W*2, ROAD_Y); ctx.closePath(); ctx.fill();
+    // Layer 3 (0.45x): roadside fence posts
+    ctx.fillStyle = '#7a5520';
+    for (var f = 0; f < 12; f++) {
+        var fx = ((f * 80 - cameraX * 0.45) % (W + 100) + W + 100) % (W + 100) - 20;
+        ctx.fillRect(fx, ROAD_Y - 40, 6, 38);
+        if (f % 2 === 0) {
+            ctx.fillStyle = '#9a7a40';
+            ctx.fillRect(fx - 2, ROAD_Y - 24, 82, 5);
+            ctx.fillStyle = '#7a5520';
+        }
+    }
+}
+
+function drawBgDesert() {
+    // Layer 1 (0.06x): distant mountains
+    ctx.fillStyle = '#c07840';
+    var mOff = (-(cameraX * 0.06)) % (W + 300);
+    ctx.beginPath();
+    ctx.moveTo(mOff, ROAD_Y);
+    var mpts = [[0,310],[90,240],[200,280],[320,210],[450,260],[580,200],[720,250],[860,310]];
+    for (var m = 0; m < mpts.length; m++) ctx.lineTo(mOff + mpts[m][0], mpts[m][1]);
+    ctx.lineTo(mOff + W, ROAD_Y); ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(mOff + W, ROAD_Y);
+    for (var m2 = 0; m2 < mpts.length; m2++) ctx.lineTo(mOff + W + mpts[m2][0], mpts[m2][1]);
+    ctx.lineTo(mOff + W*2, ROAD_Y); ctx.closePath(); ctx.fill();
+    // Layer 2 (0.20x): sand dunes
+    ctx.fillStyle = '#d4b060';
+    for (var d = 0; d < 5; d++) {
+        var dx = ((d * 200 - cameraX * 0.20) % (W + 250) + W + 250) % (W + 250) - 80;
+        ctx.beginPath();
+        ctx.arc(dx + 100, ROAD_Y, 100, Math.PI, 0);
+        ctx.fill();
+    }
+    // Layer 3 (0.50x): cacti
+    ctx.fillStyle = '#3a7a30';
+    for (var k = 0; k < 7; k++) {
+        var kx = ((k * 140 - cameraX * 0.50) % (W + 160) + W + 160) % (W + 160) - 20;
+        ctx.fillRect(kx,      ROAD_Y - 55, 10, 52);    // trunk
+        ctx.fillRect(kx - 16, ROAD_Y - 36, 16, 8);     // left arm
+        ctx.fillRect(kx - 16, ROAD_Y - 46, 8,  16);
+        ctx.fillRect(kx + 10, ROAD_Y - 30, 16, 8);     // right arm
+        ctx.fillRect(kx + 16, ROAD_Y - 40, 8,  16);
+    }
+    // Heat shimmer line
+    ctx.fillStyle = 'rgba(255,230,160,0.18)';
+    ctx.fillRect(0, ROAD_Y - 12, W, 8);
+}
+
+function drawBgCity() {
+    // Layer 1 (0.15x): distant skyline
+    var skOff = (-(cameraX * 0.15)) % (W + 400);
+    var buildings = [[0,160,55],[60,100,45],[110,180,60],[175,120,50],[230,140,70],[305,90,40],
+                     [350,170,55],[410,110,65],[480,150,50],[535,130,45],[585,160,70],[660,100,55]];
+    for (var bi = 0; bi < buildings.length; bi++) {
+        var bx = skOff + buildings[bi][0], by = buildings[bi][1], bw = buildings[bi][2];
+        ctx.fillStyle = '#1a2238';
+        ctx.fillRect(bx, by, bw, ROAD_Y - by);
+        // Windows
+        ctx.fillStyle = Math.random() < 0.02 ? '#ffee80' : 'rgba(255,240,100,0.25)';
+        for (var wy = by + 10; wy < ROAD_Y - 10; wy += 18) {
+            for (var wx = bx + 6; wx < bx + bw - 6; wx += 12) {
+                if (((wx + wy + frameCount * 0) % 7) > 2) {
+                    ctx.fillRect(wx, wy, 7, 9);
+                }
+            }
+        }
+    }
+    // Same buildings offset by one screen width
+    for (var bi2 = 0; bi2 < buildings.length; bi2++) {
+        var bx2 = skOff + W + buildings[bi2][0], by2 = buildings[bi2][1], bw2 = buildings[bi2][2];
+        ctx.fillStyle = '#1a2238';
+        ctx.fillRect(bx2, by2, bw2, ROAD_Y - by2);
+        ctx.fillStyle = 'rgba(255,240,100,0.25)';
+        for (var wy2 = by2 + 10; wy2 < ROAD_Y - 10; wy2 += 18) {
+            for (var wx2 = bx2 + 6; wx2 < bx2 + bw2 - 6; wx2 += 12) {
+                if (((wx2 + wy2) % 7) > 2) ctx.fillRect(wx2, wy2, 7, 9);
+            }
+        }
+    }
+    // Layer 2 (0.55x): streetlights
+    ctx.fillStyle = '#888890';
+    for (var sl = 0; sl < 8; sl++) {
+        var slx = ((sl * 110 - cameraX * 0.55) % (W + 130) + W + 130) % (W + 130) - 20;
+        ctx.fillRect(slx + 2, ROAD_Y - 80, 5, 78);
+        ctx.fillRect(slx - 8,  ROAD_Y - 80, 22, 5);
+        // Light glow
+        ctx.fillStyle = 'rgba(255,240,160,0.30)';
+        ctx.fillRect(slx - 14, ROAD_Y - 78, 34, 18);
+        ctx.fillStyle = '#888890';
+    }
+    // Rain puddle reflections
+    ctx.fillStyle = 'rgba(100,140,200,0.22)';
+    for (var pr = 0; pr < 6; pr++) {
+        var prx = ((pr * 130 - cameraX * 0.80) % (W + 150) + W + 150) % (W + 150) - 30;
+        ctx.fillRect(prx, ROAD_Y - 4, 50, 4);
+    }
+}
+
+function drawBgMountain() {
+    // Layer 1 (0.10x): distant snow peaks
+    ctx.fillStyle = '#d0d8e8';
+    var mpOff = (-(cameraX * 0.10)) % (W + 300);
+    var mPeaks = [[0,320],[80,200],[180,260],[300,160],[420,220],[550,150],[680,200],[800,320]];
+    ctx.beginPath();
+    ctx.moveTo(mpOff, ROAD_Y);
+    for (var mp = 0; mp < mPeaks.length; mp++) ctx.lineTo(mpOff + mPeaks[mp][0], mPeaks[mp][1]);
+    ctx.lineTo(mpOff + W, ROAD_Y); ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(mpOff + W, ROAD_Y);
+    for (var mp2 = 0; mp2 < mPeaks.length; mp2++) ctx.lineTo(mpOff + W + mPeaks[mp2][0], mPeaks[mp2][1]);
+    ctx.lineTo(mpOff + W*2, ROAD_Y); ctx.closePath(); ctx.fill();
+    // Snow caps
+    ctx.fillStyle = '#ffffff';
+    var cappts = [[80,200],[300,160],[550,150],[680,200]];
+    for (var cp = 0; cp < cappts.length; cp++) {
+        var cpx = mpOff + cappts[cp][0], cpy = cappts[cp][1];
+        ctx.beginPath();
+        ctx.moveTo(cpx - 30, cpy + 40); ctx.lineTo(cpx, cpy); ctx.lineTo(cpx + 30, cpy + 40);
+        ctx.closePath(); ctx.fill();
+    }
+    // Layer 2 (0.28x): pine trees
+    ctx.fillStyle = '#1a4a20';
+    for (var pt = 0; pt < 9; pt++) {
+        var ptx = ((pt * 90 - cameraX * 0.28) % (W + 110) + W + 110) % (W + 110) - 20;
+        // Three stacked triangles = pine silhouette
+        ctx.beginPath();
+        ctx.moveTo(ptx + 20, ROAD_Y - 80); ctx.lineTo(ptx, ROAD_Y - 40); ctx.lineTo(ptx + 40, ROAD_Y - 40);
+        ctx.closePath(); ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(ptx + 20, ROAD_Y - 60); ctx.lineTo(ptx - 8, ROAD_Y - 18); ctx.lineTo(ptx + 48, ROAD_Y - 18);
+        ctx.closePath(); ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(ptx + 20, ROAD_Y - 38); ctx.lineTo(ptx - 16, ROAD_Y); ctx.lineTo(ptx + 56, ROAD_Y);
+        ctx.closePath(); ctx.fill();
+    }
+    // Snow on shoulder
+    ctx.fillStyle = 'rgba(230,240,255,0.55)';
+    ctx.fillRect(0, ROAD_Y - 9, W, 9);
+}
+
+function drawBgSpace() {
+    // Stars (static, 0.03x parallax)
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    for (var s = 0; s < 70; s++) {
+        var sx = ((s * 179 - cameraX * 0.03) % W + W) % W;
+        var sy = (s * 101) % (H * 0.78);
+        ctx.fillRect(sx, sy, s % 5 === 0 ? 2 : 1, s % 5 === 0 ? 2 : 1);
+    }
+    // Layer 1 (0.08x): colorful nebula smears
+    var nebColors = ['rgba(80,20,120,0.14)','rgba(20,60,140,0.12)','rgba(140,20,60,0.10)'];
+    for (var nb = 0; nb < 3; nb++) {
+        var nbx = ((nb * 340 - cameraX * 0.08) % (W + 400) + W + 400) % (W + 400) - 150;
+        ctx.fillStyle = nebColors[nb % nebColors.length];
+        ctx.fillRect(nbx, 20, 260, 180);
+        ctx.fillRect(nbx + 80, 60, 140, 100);
+    }
+    // Layer 2 (0.18x): distant planets
+    var planetDefs = [
+        { r:28, col:'#8855aa', ring:true  },
+        { r:18, col:'#3355cc', ring:false },
+        { r:22, col:'#cc6622', ring:false }
+    ];
+    for (var pl = 0; pl < 3; pl++) {
+        var pd  = planetDefs[pl];
+        var plx = ((pl * 310 - cameraX * 0.18) % (W + 400) + W + 400) % (W + 400) - 100;
+        var ply = 60 + pl * 55;
+        ctx.fillStyle = pd.col;
+        ctx.beginPath();
+        ctx.arc(plx, ply, pd.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.beginPath();
+        ctx.arc(plx - pd.r * 0.3, ply - pd.r * 0.3, pd.r * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+        if (pd.ring) {
+            ctx.strokeStyle = 'rgba(200,160,80,0.55)';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.ellipse(plx, ply, pd.r * 1.8, pd.r * 0.4, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.lineWidth = 1;
+        }
+    }
+    // Neon road glow
+    ctx.fillStyle = 'rgba(0,255,120,0.07)';
+    ctx.fillRect(0, ROAD_Y - 20, W, 20);
+}
+
+// ==================== DRAW: ROAD SURFACE ====================
+function drawRoad() {
+    var b = BIOMES[currentBiomeIdx];
+
+    // Verge / shoulder strip
+    ctx.fillStyle = b.dirtColor;
+    ctx.fillRect(0, ROAD_Y - 14, W, 14);
+
+    // Road body
+    ctx.fillStyle = b.roadColor;
+    ctx.fillRect(0, ROAD_Y, W, H - ROAD_Y);
+
+    // Road top edge line
+    ctx.fillStyle = b.roadEdge;
+    ctx.fillRect(0, ROAD_Y, W, 4);
+
+    // Dashed center line — scrolls with camera
+    ctx.fillStyle = b.roadLine;
+    var dashW  = 40, dashGap = 30;
+    var offset = (cameraX * 0.8) % (dashW + dashGap);
+    for (var x = -offset; x < W + dashW; x += dashW + dashGap) {
+        ctx.fillRect(x, ROAD_Y + Math.floor((H - ROAD_Y) * 0.44), dashW, 4);
+    }
+}
+
+// ==================== OBSTACLE GENERATION ====================
+// Obstacle types:
+//   ramp    — wedge that launches kart airborne (3 sizes)
+//   barrier — striped wall that must be jumped over
+//   pothole — road dimple that bumps the kart slightly
+
+function generateObstacles() {
+    while (nextObstacleX < cameraX + GEN_AHEAD) {
+        var gap  = randBetween(320, 620);
+        var roll = Math.random();
+        var obj  = null;
+        // Ramps more common than barriers; potholes sprinkled in
+        if (roll < 0.40) {
+            // ramp: small / medium / large
+            var sizes = [
+                { w:52,  h:28 },
+                { w:68,  h:48 },
+                { w:85,  h:70 }
+            ];
+            var sz = sizes[Math.floor(Math.random() * 3)];
+            obj = { type:'ramp', worldX:nextObstacleX, w:sz.w, h:sz.h, used:false };
+        } else if (roll < 0.65) {
+            // barrier — tall enough to require jumping
+            obj = { type:'barrier', worldX:nextObstacleX, w:20, h:44 };
+        } else if (roll < 0.82) {
+            // pothole
+            obj = { type:'pothole', worldX:nextObstacleX, w:44, h:12 };
+        }
+        // 18% chance: no obstacle in this gap (open road)
+        if (obj) obstacles.push(obj);
+        nextObstacleX += gap;
+    }
+}
+
+function cullObstacles() {
+    obstacles = obstacles.filter(function(o) {
+        return o.worldX + o.w > cameraX - CULL_BEHIND;
+    });
+}
+
+// ==================== OBSTACLE COLLISION ====================
+function checkObstacleCollisions() {
+    var ks = KART_SCREEN_X;   // kart screen x (always fixed)
+    for (var i = 0; i < obstacles.length; i++) {
+        var o  = obstacles[i];
+        var ox = o.worldX - cameraX;  // screen x of obstacle left edge
+
+        // Off-screen — skip
+        if (ox + o.w < -10 || ox > W + 10) continue;
+
+        if (o.type === 'ramp') {
+            // Trigger launch when kart's right side enters ramp zone while on ground
+            if (!o.used && kart.state === 'ground' &&
+                ks + kart.w > ox + 4 && ks < ox + o.w) {
+                o.used = true;
+                var lift = activeUpgrades.indexOf('off_road_tires') !== -1
+                    ? -(9 + o.h * 0.22)
+                    : -(7 + o.h * 0.18);
+                kart.dy    = lift;
+                kart.state = 'air';
+                kart.airJumps = 0;
+                sfxRamp();
+                spawnDust(ks + kart.w / 2, ROAD_Y);
+                spawnRocketFlame(ks - 4, kart.y + kart.h - 4);
+            }
+
+        } else if (o.type === 'barrier') {
+            // Barrier top is at ROAD_Y - o.h
+            var barrierTop = ROAD_Y - o.h;
+            var hitX = ks + kart.w - 4 > ox + 2 && ks + 4 < ox + o.w - 2;
+            var hitY = kart.y + kart.h - 4 > barrierTop && kart.y + 4 < ROAD_Y;
+            if (hitX && hitY && kart.invincible === 0) {
+                if (kart.shield) {
+                    kart.shield     = false;
+                    kart.invincible = 50;
+                    shakeFrames = 5; shakeMagnitude = 4;
+                    spawnFeathers(ks + 26, kart.y + 14);
+                    spawnSparks(ox + o.w / 2, barrierTop);
+                } else {
+                    var dmg = activeUpgrades.indexOf('tough') !== -1 ? 15 : HIT_DAMAGE;
+                    kart.hp        -= dmg;
+                    kart.invincible = HIT_INV_FRAMES;
+                    kart.dy         = Math.min(kart.dy, -3);   // small bounce
+                    shakeFrames = 10; shakeMagnitude = 7;
+                    sfxHit();
+                    spawnFeathers(ks + 26, kart.y + 14);
+                    spawnSparks(ox + o.w / 2, barrierTop);
+                    noHitRun = false;
+                    if (kart.hp <= 0) { kart.hp = 0; kart.alive = false; }
+                }
+            }
+
+        } else if (o.type === 'pothole') {
+            // Pothole bumps the kart upward and triggers a small dust puff
+            if (!o.used && kart.state === 'ground' &&
+                ks + kart.w - 6 > ox + 4 && ks + 6 < ox + o.w - 4) {
+                o.used  = true;
+                kart.dy = -2.5;      // small bump
+                kart.state = 'air';
+                spawnDust(ks + kart.w / 2, ROAD_Y);
+                sfxLand();           // thud sound reused
+            }
+        }
+    }
+}
+
+// ==================== OBSTACLE DRAWING ====================
+function drawObstacles() {
+    var b = BIOMES[currentBiomeIdx];
+    for (var i = 0; i < obstacles.length; i++) {
+        var o  = obstacles[i];
+        var ox = o.worldX - cameraX;
+        if (ox + o.w < -20 || ox > W + 20) continue;
+
+        if (o.type === 'ramp') {
+            // Draw as a filled ramp wedge rising left-to-right
+            var slope = o.h;
+            ctx.fillStyle = b.roadEdge;
+            ctx.beginPath();
+            ctx.moveTo(ox,        ROAD_Y);
+            ctx.lineTo(ox + o.w,  ROAD_Y);
+            ctx.lineTo(ox + o.w,  ROAD_Y - slope);
+            ctx.closePath();
+            ctx.fill();
+            // Highlight top edge of ramp
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(ox + o.w - 4, ROAD_Y - slope - 2, 6, 4);
+            // Arrow hint
+            ctx.fillStyle = '#ffee00';
+            ctx.fillRect(ox + Math.floor(o.w * 0.35), ROAD_Y - Math.floor(slope * 0.55), 8, 4);
+            ctx.fillRect(ox + Math.floor(o.w * 0.55), ROAD_Y - Math.floor(slope * 0.72), 8, 4);
+
+        } else if (o.type === 'barrier') {
+            var bt = ROAD_Y - o.h;
+            // Post
+            ctx.fillStyle = '#cc8800';
+            ctx.fillRect(ox + 6, bt, 8, o.h);
+            // Striped hazard bands
+            for (var strip = 0; strip < 5; strip++) {
+                ctx.fillStyle = strip % 2 === 0 ? '#ff6600' : '#ffffff';
+                ctx.fillRect(ox, bt + strip * (o.h / 5), o.w, Math.ceil(o.h / 5));
+            }
+            // Top cap
+            ctx.fillStyle = '#ffcc00';
+            ctx.fillRect(ox - 2, bt - 4, o.w + 4, 6);
+            // Shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.25)';
+            ctx.fillRect(ox + o.w, bt, 5, o.h);
+
+        } else if (o.type === 'pothole') {
+            // Oval depression on road
+            ctx.fillStyle = '#1a1a1a';
+            ctx.beginPath();
+            ctx.ellipse(ox + o.w / 2, ROAD_Y + 4, o.w / 2, 8, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(0,0,0,0.40)';
+            ctx.beginPath();
+            ctx.ellipse(ox + o.w / 2, ROAD_Y + 2, o.w / 2 - 4, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+}
+
+// ==================== DRAW: KART SPRITE ====================
+function drawKart(x, y, animFrame, invincible, shield) {
+    ctx.save();
+    if (invincible > 0 && Math.floor(invincible / 5) % 2 === 0) ctx.globalAlpha = 0.45;
+
+    // Subtle bounce on ground
+    var bounce = kart.state === 'ground' ? Math.sin(frameCount * 0.30) * 1.0 : 0;
+    y += bounce;
+
+    // ── Shadow — shrinks & fades as kart rises ──
+    var groundDist = Math.max(0, ROAD_Y - (y + kart.h)); // pixels above road
+    var shadowScale = Math.max(0.15, 1 - groundDist / 200);
+    var shadowAlpha = Math.max(0.05, 0.28 * shadowScale);
+    var shadowW = Math.round((kart.w - 6) * shadowScale);
+    var shadowX = x + 4 + Math.round(((kart.w - 6) - shadowW) / 2);
+    ctx.fillStyle = 'rgba(0,0,0,' + shadowAlpha + ')';
+    ctx.fillRect(shadowX, ROAD_Y - 3, shadowW, Math.max(2, Math.round(5 * shadowScale)));
+
+    // ── Kart body ──
+    ctx.fillStyle = '#cc2211';
+    ctx.fillRect(x + 6,  y + 14, 40, 14);   // main chassis
+    ctx.fillStyle = '#ee4433';
+    ctx.fillRect(x + 8,  y + 12, 38,  5);   // top highlight strip
+    ctx.fillStyle = '#881100';
+    ctx.fillRect(x + 6,  y + 26, 40,  2);   // underside shadow
+
+    // ── Side exhaust pipes ──
+    ctx.fillStyle = '#7a7a8a';
+    ctx.fillRect(x,      y + 17, 7,  3);
+    ctx.fillRect(x,      y + 22, 7,  3);
+
+    // Exhaust glow when boosting
+    if (kart.boostTimer > 0) {
+        ctx.fillStyle = 'rgba(255,160,0,0.75)';
+        ctx.fillRect(x - 4,  y + 16, 5, 4);
+        ctx.fillRect(x - 4,  y + 21, 5, 4);
+    }
+
+    // ── Cockpit / windshield ──
+    ctx.fillStyle = '#1a3366';
+    ctx.fillRect(x + 22, y + 5,  22, 11);   // windshield glass
+    ctx.fillStyle = '#2244aa';
+    ctx.fillRect(x + 24, y + 6,  14,  4);   // reflection streak
+
+    // ── Duck in cockpit ──
+    // Body
+    ctx.fillStyle = '#f5c842';
+    ctx.fillRect(x + 25, y + 2,  14, 10);
+    // Head
+    ctx.fillStyle = '#f5c842';
+    ctx.fillRect(x + 31, y - 2,  10,  8);
+    // Beak
+    ctx.fillStyle = '#e07820';
+    ctx.fillRect(x + 39, y + 1,   5,  3);
+    // Eye socket
+    ctx.fillStyle = '#111111';
+    ctx.fillRect(x + 37, y - 1,   3,  3);
+    // Eye highlight
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x + 38, y - 1,   1,  1);
+    // Wing — waves on alternating frames
+    ctx.fillStyle = '#c89820';
+    var wf = animFrame % 2;
+    ctx.fillRect(x + 24, y + 4 + (wf === 0 ? 2 : 0), 6, 4);
+
+    // ── Big rear wheels ──
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(x + 1,  y + 20, 16, 16);   // tire
+    ctx.fillStyle = '#333333';
+    ctx.fillRect(x + 3,  y + 22, 12, 12);
+    ctx.fillStyle = '#666666';
+    ctx.fillRect(x + 7,  y + 26,  4,  4);   // hub cap
+    ctx.fillStyle = '#999999';
+    ctx.fillRect(x + 8,  y + 27,  2,  2);   // hub shine
+
+    // ── Small front wheels ──
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(x + 35, y + 22, 12, 12);   // tire
+    ctx.fillStyle = '#333333';
+    ctx.fillRect(x + 37, y + 24,  8,  8);
+    ctx.fillStyle = '#666666';
+    ctx.fillRect(x + 40, y + 27,  2,  2);   // hub cap
+
+    // ── Front bumper ──
+    ctx.fillStyle = '#ffcc00';
+    ctx.fillRect(x + 46, y + 16,  5,  8);
+    ctx.fillStyle = '#ffaa00';
+    ctx.fillRect(x + 47, y + 17,  3,  6);
+
+    // ── Shield bubble ──
+    if (shield) {
+        ctx.strokeStyle = 'rgba(100,200,255,0.85)';
+        ctx.lineWidth   = 3;
+        ctx.beginPath();
+        ctx.arc(x + 26, y + 15, 28, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(100,200,255,0.10)';
+        ctx.fill();
+        ctx.lineWidth = 1;
+    }
+
+    ctx.restore();
+}
+
+// ==================== DRAW: TITLE SCREEN ====================
+function drawTitleScreen() {
+    // Night sky gradient
+    var grd = ctx.createLinearGradient(0, 0, 0, H);
+    grd.addColorStop(0, '#080c1e');
+    grd.addColorStop(1, '#1a2240');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, W, H);
+
+    // Stars
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    for (var s = 0; s < 55; s++) {
+        var sx = (s * 173 + 7) % W;
+        var sy = (s * 97  + 3) % (H * 0.5);
+        ctx.fillRect(sx, sy, s % 4 === 0 ? 2 : 1, s % 4 === 0 ? 2 : 1);
+    }
+
+    // Road strip
+    ctx.fillStyle = '#3a3a4a';
+    ctx.fillRect(0, ROAD_Y - 12, W, H - ROAD_Y + 12);
+    ctx.fillStyle = '#2a2a38';
+    ctx.fillRect(0, ROAD_Y - 12, W, 4);
+
+    // Scrolling dashes on title road
+    ctx.fillStyle = '#ffee44';
+    var dashOff = (frameCount * 3.5) % 70;
+    for (var dx2 = -dashOff; dx2 < W + 40; dx2 += 70) {
+        ctx.fillRect(dx2, ROAD_Y + 28, 40, 4);
+    }
+
+    // Animated kart rolling across screen
+    var tkx = ((frameCount * 2.5) % (W + 100)) - 80;
+    var tky = ROAD_Y - kart.h - 2;
+    drawKart(tkx, tky, Math.floor(frameCount / 8) % 4, 0, false);
+    // Rocket trail
+    if (frameCount % 2 === 0) spawnRocketFlame(tkx - 2, tky + kart.h - 6);
+
+    // Title
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 80px Courier New';
+    ctx.fillStyle = '#330000';
+    ctx.fillText('DUCKSTER', W/2 + 4, 124);
+    ctx.fillStyle = '#ff8800';
+    ctx.fillText('DUCKSTER', W/2,     120);
+
+    ctx.font = 'bold 22px Courier New';
+    ctx.fillStyle = '#ffdd66';
+    ctx.fillText('R O A D   R A G E', W/2, 158);
+
+    // Blink prompt
+    if (Math.floor(frameCount / 28) % 2 === 0) {
+        ctx.font = '18px Courier New';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('PRESS ANY KEY TO START', W/2, 228);
+    }
+
+    // Best run
+    ctx.font = '13px Courier New';
+    ctx.fillStyle = '#8899aa';
+    var best = meta.bestDistance > 0 ? Math.floor(meta.bestDistance / 10) + 'm' : '---';
+    ctx.fillText('BEST: ' + best + '   RUNS: ' + meta.totalRuns, W/2, 268);
+
+    ctx.fillStyle = '#556677';
+    ctx.fillText(meta.achievements.length + ' / ' + ACHIEVEMENT_DEFS.length + ' achievements', W/2, 290);
+
+    // Controls
+    ctx.font = '12px Courier New';
+    ctx.fillStyle = '#445566';
+    ctx.fillText('SPACE: Jump     SHIFT: Boost', W/2, H - 22);
+
+    ctx.textAlign = 'left';
+}
+
+// ==================== DRAW: ABILITY PICK ====================
+function drawAbilityPick() {
+    ctx.fillStyle = 'rgba(6,10,20,0.97)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 30px Courier New';
+    ctx.fillStyle = '#ff8800';
+    ctx.fillText('CHOOSE YOUR KART BUILD', W/2, 66);
+
+    ctx.font = '14px Courier New';
+    ctx.fillStyle = '#8888aa';
+    ctx.fillText('Your build shapes the entire run', W/2, 92);
+
+    var cw = 194, ch = 185, gap = 14;
+    var totalW = abilityChoices.length * cw + (abilityChoices.length - 1) * gap;
+    var startX = (W - totalW) / 2;
+
+    for (var i = 0; i < abilityChoices.length; i++) {
+        var ab  = abilityChoices[i];
+        var cx  = startX + i * (cw + gap);
+        var cy  = 116;
+        var hot = (abilitySelected === i);
+
+        ctx.fillStyle = hot ? 'rgba(80,42,5,0.97)' : 'rgba(18,20,44,0.97)';
+        ctx.fillRect(cx, cy, cw, ch);
+        ctx.strokeStyle = hot ? '#ff8800' : '#334';
+        ctx.lineWidth   = hot ? 3 : 1;
+        ctx.strokeRect(cx, cy, cw, ch);
+        ctx.lineWidth   = 1;
+
+        ctx.font = 'bold 13px Courier New';
+        ctx.fillStyle = '#ff8800';
+        ctx.textAlign = 'left';
+        ctx.fillText('[' + (i + 1) + ']', cx + 8, cy + 20);
+
+        ctx.font = 'bold 15px Courier New';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.fillText(ab.name, cx + cw/2, cy + 52);
+
+        ctx.fillStyle = hot ? '#ff8800' : '#334';
+        ctx.fillRect(cx + 20, cy + 60, cw - 40, 1);
+
+        ctx.font = '12px Courier New';
+        ctx.fillStyle = '#aaaacc';
+        wrapText(ctx, ab.desc, cx + cw/2, cy + 82, cw - 24, 17);
+    }
+
+    ctx.font = '13px Courier New';
+    ctx.fillStyle = '#555566';
+    ctx.textAlign = 'center';
+    ctx.fillText('Keys 1 / 2 / 3  or  click a card', W/2, 116 + ch + 28);
+    ctx.textAlign = 'left';
+}
+
+// ==================== DRAW: UPGRADE SCREEN (PIT STOP) ====================
+function drawUpgradeScreen() {
+    ctx.fillStyle = 'rgba(4,6,18,0.85)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 34px Courier New';
+    ctx.fillStyle = '#ff8800';
+    ctx.fillText('PIT STOP!', W/2, 60);
+
+    ctx.font = '13px Courier New';
+    ctx.fillStyle = '#8888aa';
+    ctx.fillText('Choose one upgrade to keep racing', W/2, 84);
+
+    var cw = 188, ch = 190, gap = 13;
+    var totalW = upgradeChoices.length * cw + (upgradeChoices.length - 1) * gap;
+    var startX = (W - totalW) / 2;
+
+    for (var i = 0; i < upgradeChoices.length; i++) {
+        var up  = upgradeChoices[i];
+        var cx  = startX + i * (cw + gap);
+        var cy  = 102;
+        var hot = (upgradeSelected === i);
+
+        ctx.fillStyle = hot ? 'rgba(70,40,5,0.98)' : 'rgba(14,16,38,0.98)';
+        ctx.fillRect(cx, cy, cw, ch);
+        ctx.strokeStyle = hot ? '#ff8800' : (up.color || '#334');
+        ctx.lineWidth   = hot ? 3 : 2;
+        ctx.strokeRect(cx, cy, cw, ch);
+        ctx.lineWidth   = 1;
+
+        // Color bar top
+        ctx.fillStyle = up.color || '#446';
+        ctx.fillRect(cx, cy, cw, 5);
+
+        ctx.font = 'bold 13px Courier New';
+        ctx.fillStyle = '#ff8800';
+        ctx.textAlign = 'left';
+        ctx.fillText('[' + (i + 1) + ']', cx + 8, cy + 22);
+
+        ctx.font = '22px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(up.icon, cx + cw/2, cy + 56);
+
+        ctx.font = 'bold 14px Courier New';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(up.name, cx + cw/2, cy + 80);
+
+        ctx.fillStyle = up.color || '#334';
+        ctx.fillRect(cx + 18, cy + 88, cw - 36, 1);
+
+        ctx.font = '11px Courier New';
+        ctx.fillStyle = '#aaaacc';
+        wrapText(ctx, up.desc, cx + cw/2, cy + 108, cw - 22, 16);
+    }
+
+    ctx.font = '13px Courier New';
+    ctx.fillStyle = '#555566';
+    ctx.textAlign = 'center';
+    ctx.fillText('Keys 1 / 2 / 3  or  click a card', W/2, 102 + ch + 28);
+    ctx.textAlign = 'left';
+}
+
+// ==================== DRAW: DEATH SCREEN (WIPEOUT) ====================
+function drawDeathScreen() {
+    ctx.textAlign = 'center';
+
+    ctx.font = 'bold 68px Courier New';
+    ctx.fillStyle = '#660000';
+    ctx.fillText('WIPEOUT!', W/2 + 3, 95);
+    ctx.fillStyle = '#ff2222';
+    ctx.fillText('WIPEOUT!', W/2,     92);
+
+    // Expand panel height if upgrades to display
+    var upgradeLineH = activeUpgrades.length > 0 ? (12 + activeUpgrades.length * 18) : 0;
+    var pw = 450, ph = 258 + upgradeLineH, px = (W - pw) / 2, py = 100;
+    ctx.fillStyle = 'rgba(26,6,6,0.92)';
+    ctx.fillRect(px, py, pw, ph);
+    ctx.strokeStyle = '#550000';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(px, py, pw, ph);
+    ctx.lineWidth = 1;
+
+    var elapsed = Date.now() - runStartTime;
+    var rows = [
+        ['DISTANCE', distMeters() + 'm'],
+        ['TIME',     formatTime(elapsed)],
+        ['ZONE',     BIOMES[currentBiomeIdx].name],
+        ['ENEMIES',  kills + ''],
+        ['CORN',     corn  + '']
+    ];
+
+    ctx.font = '14px Courier New';
+    for (var ri = 0; ri < rows.length; ri++) {
+        var ry = py + 32 + ri * 36;
+        ctx.fillStyle = '#777788';
+        ctx.textAlign = 'left';
+        ctx.fillText(rows[ri][0], px + 22, ry);
+        ctx.fillStyle = '#ffe066';
+        ctx.textAlign = 'right';
+        ctx.fillText(rows[ri][1], px + pw - 22, ry);
+    }
+
+    // List upgrades taken
+    if (activeUpgrades.length > 0) {
+        var uStartY = py + 32 + rows.length * 36;
+        ctx.font = '13px Courier New';
+        ctx.fillStyle = '#777788';
+        ctx.textAlign = 'left';
+        ctx.fillText('UPGRADES', px + 22, uStartY);
+        ctx.fillStyle = '#aaddff';
+        for (var ui = 0; ui < activeUpgrades.length; ui++) {
+            var uDef = UPGRADES.filter(function(u){ return u.id === activeUpgrades[ui]; })[0];
+            var uName = uDef ? uDef.name : activeUpgrades[ui];
+            ctx.fillText('\u2022 ' + uName, px + 22, uStartY + 14 + ui * 18);
+        }
+    }
+
+    if (distancePx > 0 && distancePx >= meta.bestDistance) {
+        ctx.font = 'bold 15px Courier New';
+        ctx.fillStyle = '#f39c12';
+        ctx.textAlign = 'center';
+        ctx.fillText('\u2605  NEW BEST DISTANCE!  \u2605', W/2, py + ph - 16);
+    }
+
+    if (Math.floor(frameCount / 32) % 2 === 0) {
+        ctx.font = 'bold 17px Courier New';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.fillText('PRESS  R  TO  RESTART', W/2, H - 30);
+    }
+
+    ctx.textAlign = 'left';
+}
+
+// ==================== DRAW: VICTORY SCREEN ====================
+function drawVictoryScreen() {
+    var grd = ctx.createLinearGradient(0, 0, 0, H);
+    grd.addColorStop(0, '#000020');
+    grd.addColorStop(1, '#080430');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, W, H);
+
+    // Celebration stars
+    ctx.fillStyle = 'rgba(255,255,180,0.9)';
+    for (var s = 0; s < 70; s++) {
+        var stx = ((s * 173 + frameCount * ((s % 3) + 1)) % (W + 10) + W + 10) % (W + 10);
+        var sty = ((s * 97  + frameCount * ((s % 2) + 1)) % (H + 10) + H + 10) % (H + 10);
+        ctx.fillRect(stx, sty, s % 4 === 0 ? 3 : 1, s % 4 === 0 ? 3 : 1);
+    }
+
+    ctx.textAlign = 'center';
+
+    ctx.font = 'bold 58px Courier New';
+    ctx.fillStyle = '#330000';
+    ctx.fillText('FINISH LINE!', W/2 + 3, 113);
+    ctx.fillStyle = '#ffdd00';
+    ctx.fillText('FINISH LINE!', W/2,     110);
+
+    ctx.font = 'bold 20px Courier New';
+    ctx.fillStyle = '#ff8800';
+    ctx.fillText('YOU REACHED THE END OF THE ROAD!', W/2, 148);
+
+    var elapsed = Date.now() - runStartTime;
+    ctx.font = '15px Courier New';
+    ctx.fillStyle = '#dddddd';
+    ctx.fillText('Distance: ' + distMeters() + 'm   Time: ' + formatTime(elapsed), W/2, 196);
+    ctx.fillText('Enemies beaten: ' + kills + '   Corn collected: ' + corn, W/2, 222);
+
+    ctx.font = '13px Courier New';
+    ctx.fillStyle = '#888899';
+    ctx.fillText('Upgrades taken: ' + activeUpgrades.length + ' / ' + UPGRADE_DEFS.length, W/2, 250);
+
+    // Periodic fireworks celebration
+    if (frameCount - lastVictoryFirework > 28) {
+        lastVictoryFirework = frameCount;
+        var colors = ['#ff4444','#ffaa00','#44ff88','#4488ff','#ff44ff','#ffff44'];
+        var fx = 80 + Math.random() * (W - 160);
+        var fy = 60 + Math.random() * 180;
+        for (var fi = 0; fi < 22; fi++) {
+            var angle = (fi / 22) * Math.PI * 2;
+            var spd   = 1.5 + Math.random() * 2.5;
+            particles.push({
+                x: fx, y: fy,
+                vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd - 1,
+                life: 55 + Math.floor(Math.random() * 30),
+                maxLife: 85,
+                color: colors[Math.floor(Math.random() * colors.length)],
+                size: 2 + Math.random() * 2, type: 'spark'
+            });
+        }
+    }
+
+    if (victoryInputLock <= 0 && Math.floor(frameCount / 32) % 2 === 0) {
+        ctx.font = 'bold 17px Courier New';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('PRESS  R  TO  PLAY AGAIN', W/2, H - 30);
+    }
+
+    ctx.textAlign = 'left';
+}
+
+// ==================== DRAW: TOASTS ====================
+function drawToasts() {
+    for (var i = toasts.length - 1; i >= 0; i--) {
+        var t = toasts[i];
+        t.timer--;
+        if (t.timer <= 0) { toasts.splice(i, 1); continue; }
+
+        var alpha = Math.min(1, t.timer / 35);
+        ctx.font  = 'bold 12px Courier New';
+        var tw    = ctx.measureText(t.text).width + 22;
+        var tx    = W - tw - 10;
+        var ty    = 52 + i * 34;
+
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle   = 'rgba(12,10,28,0.92)';
+        ctx.fillRect(tx, ty, tw, 26);
+        ctx.strokeStyle = '#ff8800';
+        ctx.lineWidth   = 1.5;
+        ctx.strokeRect(tx, ty, tw, 26);
+        ctx.lineWidth   = 1;
+
+        ctx.fillStyle = '#ff8800';
+        ctx.textAlign = 'right';
+        ctx.fillText(t.text, W - 20, ty + 17);
+        ctx.globalAlpha = 1;
+    }
+    ctx.textAlign = 'left';
+}
+
+// ==================== DRAW: SPEED LINES ====================
+function drawSpeedLines() {
+    var alpha = Math.min(0.55, kart.boostTimer / 22);
+    if (alpha <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth   = 1.5;
+    for (var i = 0; i < 12; i++) {
+        var ly  = 180 + Math.sin((frameCount * 0.3 + i * 41) % (Math.PI * 2)) * 120;
+        var lx  = KART_SCREEN_X + kart.w + 8 + (i % 4) * 18;
+        var len = 24 + (i % 3) * 14;
+        ctx.beginPath();
+        ctx.moveTo(lx, ly);
+        ctx.lineTo(lx - len, ly);
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
+// ==================== DRAW: BIOME FLASH ====================
+function drawBiomeFlash() {
+    if (biomeFlash <= 0) return;
+    var alpha = (biomeFlash / 30) * 0.45;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+    biomeFlash--;
+}
+
+// ==================== INPUT ====================
+var keyHeld = {};
+
+function goToAbilityPick() {
+    var pool = ABILITY_POOL.slice();
+    shuffleArray(pool);
+    abilityChoices  = pool.slice(0, 3);
+    abilitySelected = -1;
+    gameState = 'ABILITY_PICK';
+}
+
+document.addEventListener('keydown', function(e) {
+    if (keyHeld[e.code]) return;
+    keyHeld[e.code] = true;
+    initAudio();
+
+    if (gameState === 'TITLE') { goToAbilityPick(); return; }
+
+    if (gameState === 'ABILITY_PICK') {
+        if (e.code === 'Digit1') selectAbility(0);
+        if (e.code === 'Digit2') selectAbility(1);
+        if (e.code === 'Digit3') selectAbility(2);
+        return;
+    }
+
+    if (gameState === 'UPGRADE') {
+        if (e.code === 'Digit1') applyUpgrade(0);
+        if (e.code === 'Digit2') applyUpgrade(1);
+        if (e.code === 'Digit3') applyUpgrade(2);
+        return;
+    }
+
+    if (gameState === 'DEAD' || gameState === 'VICTORY') {
+        if (victoryInputLock <= 0 && (e.code === 'KeyR' || e.code === 'Space')) goToAbilityPick();
+        return;
+    }
+
+    if (gameState === 'PLAYING') {
+        if (e.code === 'Space')                                { e.preventDefault(); doJump(); }
+        if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { e.preventDefault(); doBoost(); }
+    }
+});
+
+document.addEventListener('keyup', function(e) { keyHeld[e.code] = false; });
+
+canvas.addEventListener('click', function(ev) {
+    initAudio();
+    var rect = canvas.getBoundingClientRect();
+    var mx   = (ev.clientX - rect.left) * (W / rect.width);
+    var my   = (ev.clientY - rect.top)  * (H / rect.height);
+
+    if (gameState === 'TITLE') { goToAbilityPick(); return; }
+
+    if (gameState === 'ABILITY_PICK') {
+        var acw = 194, ach = 185, agap = 14;
+        var atW = abilityChoices.length * acw + (abilityChoices.length - 1) * agap;
+        var asx = (W - atW) / 2;
+        for (var ai = 0; ai < abilityChoices.length; ai++) {
+            var acx = asx + ai * (acw + agap);
+            if (mx >= acx && mx <= acx + acw && my >= 116 && my <= 116 + ach)
+                { selectAbility(ai); return; }
+        }
+        return;
+    }
+
+    if (gameState === 'UPGRADE') {
+        var ucw = 188, uch = 190, ugap = 13;
+        var utW = upgradeChoices.length * ucw + (upgradeChoices.length - 1) * ugap;
+        var usx = (W - utW) / 2;
+        for (var ui = 0; ui < upgradeChoices.length; ui++) {
+            var ucx = usx + ui * (ucw + ugap);
+            if (mx >= ucx && mx <= ucx + ucw && my >= 102 && my <= 102 + uch)
+                { applyUpgrade(ui); return; }
+        }
+        return;
+    }
+
+    if (gameState === 'DEAD' || gameState === 'VICTORY') { if (victoryInputLock <= 0) goToAbilityPick(); return; }
+
+    if (gameState === 'PLAYING') {
+        if (mx < W / 2) doJump(); else doBoost();
+    }
+});
+
+canvas.addEventListener('mousemove', function(ev) {
+    var rect = canvas.getBoundingClientRect();
+    mouseX = (ev.clientX - rect.left) * (W / rect.width);
+    mouseY = (ev.clientY - rect.top)  * (H / rect.height);
+
+    if (gameState === 'ABILITY_PICK') {
+        var acw = 194, ach = 185, agap = 14;
+        var atW = abilityChoices.length * acw + (abilityChoices.length - 1) * agap;
+        var asx = (W - atW) / 2;
+        abilitySelected = -1;
+        for (var ai = 0; ai < abilityChoices.length; ai++) {
+            var acx = asx + ai * (acw + agap);
+            if (mouseX >= acx && mouseX <= acx + acw && mouseY >= 116 && mouseY <= 116 + ach)
+                { abilitySelected = ai; break; }
+        }
+    }
+
+    if (gameState === 'UPGRADE') {
+        var ucw = 188, uch = 190, ugap = 13;
+        var utW = upgradeChoices.length * ucw + (upgradeChoices.length - 1) * ugap;
+        var usx = (W - utW) / 2;
+        upgradeSelected = -1;
+        for (var ui = 0; ui < upgradeChoices.length; ui++) {
+            var ucx = usx + ui * (ucw + ugap);
+            if (mouseX >= ucx && mouseX <= ucx + ucw && mouseY >= 102 && mouseY <= 102 + uch)
+                { upgradeSelected = ui; break; }
+        }
+    }
+});
+
+document.getElementById('jumpBtn').addEventListener('touchstart', function(e) {
+    e.preventDefault(); initAudio();
+    if (gameState === 'PLAYING') doJump();
+}, { passive: false });
+
+document.getElementById('boostBtn').addEventListener('touchstart', function(e) {
+    e.preventDefault(); initAudio();
+    if (gameState === 'PLAYING') doBoost();
+}, { passive: false });
+
+// ==================== GAME LOOP ====================
+function loop() {
+    frameCount++;
+    ctx.save();
+
+    // Screen shake
+    if (shakeFrames > 0) {
+        ctx.translate(
+            (Math.random() - 0.5) * shakeMagnitude * 2,
+            (Math.random() - 0.5) * shakeMagnitude * 2
+        );
+        shakeFrames--;
+    }
+
+    if (gameState === 'TITLE') {
+        drawTitleScreen();
+        updateParticles();
+        drawParticles();
+
+    } else if (gameState === 'ABILITY_PICK') {
+        drawAbilityPick();
+
+    } else if (gameState === 'PLAYING' || gameState === 'UPGRADE') {
+        spawnBiomeParticles();
+        generateObstacles();
+        cullObstacles();
+        spawnEnemies();
+        generateCollectibles();
+
+        if (gameState === 'PLAYING') {
+            updatePhysics();
+            updateCollectibles();
+            updateEnemies();
+        }
+        updateParticles();
+
+        drawBackground();
+        drawBgParticles();
+        drawRoad();
+        drawObstacles();
+        drawCollectibles();
+        drawEnemies();
+        drawKart(KART_SCREEN_X, kart.y, kart.animFrame, kart.invincible, kart.shield);
+        drawParticles();
+        if (gameState === 'PLAYING') drawSpeedLines();
+        drawBiomeFlash();
+        drawToasts();
+
+        if (gameState === 'UPGRADE') drawUpgradeScreen();
+
+    } else if (gameState === 'DEAD') {
+        drawBackground();
+        drawRoad();
+        ctx.fillStyle = 'rgba(0,0,0,0.65)';
+        ctx.fillRect(0, 0, W, H);
+        drawDeathScreen();
+        drawToasts();
+
+    } else if (gameState === 'VICTORY') {
+        if (victoryInputLock > 0) victoryInputLock--;
+        drawVictoryScreen();
+        updateParticles();
+        drawParticles();
+        drawToasts();
+    }
+
+    ctx.restore();
+    requestAnimationFrame(loop);
+}
+
+// ==================== ENEMY SPAWNING ====================
+function spawnEnemies() {
+    while (nextEnemyX < cameraX + GEN_AHEAD) {
+        var b    = BIOMES[currentBiomeIdx];
+        var pool = b.enemies;
+        var type = pool[Math.floor(Math.random() * pool.length)];
+        var spd  = Math.min(5.0, 1.5 + distancePx * 0.00006);
+        var gap  = 360 + Math.random() * 300;
+        var wx   = nextEnemyX;
+        var e    = null;
+
+        switch (type) {
+            case 'gator':
+                e = { type:'gator', worldX:wx, y:ROAD_Y-20, w:48, h:20,
+                      speed:spd*0.7, dir:1, hp:2,
+                      patrol:{min:wx-150,max:wx+180}, animFrame:0, animTimer:0 };
+                break;
+            case 'hawk':
+                e = { type:'hawk', worldX:wx+200, y:80+Math.random()*80, w:36, h:16,
+                      speed:spd*1.1, dir:-1, hp:1, diving:false, diveDy:0,
+                      baseY:80+Math.random()*80, animFrame:0, animTimer:0 };
+                break;
+            case 'turtle':
+                e = { type:'turtle', worldX:wx, y:ROAD_Y-18, w:32, h:18,
+                      speed:spd*0.35, dir:1, hp:1, patrol:{min:wx-80,max:wx+100} };
+                break;
+            case 'snake':
+                e = { type:'snake', worldX:wx, y:ROAD_Y-14, w:52, h:14,
+                      speed:spd*0.85, dir:1, hp:1, baseY:ROAD_Y-14,
+                      patrol:{min:wx-130,max:wx+150} };
+                break;
+            case 'vulture':
+                e = { type:'vulture', worldX:wx+180, y:70+Math.random()*90, w:40, h:18,
+                      speed:spd*1.0, dir:-1, hp:1, diving:false, diveDy:0,
+                      baseY:70+Math.random()*90, animFrame:0, animTimer:0 };
+                break;
+            case 'tumbleweed':
+                e = { type:'tumbleweed', worldX:wx+220, y:ROAD_Y-28, w:28, h:28,
+                      speed:spd*1.7, dir:-1, hp:1, dy:0, rotation:0 };
+                break;
+            case 'taxi':
+                e = { type:'taxi', worldX:wx+320, y:ROAD_Y-26, w:58, h:26,
+                      speed:spd*2.0, dir:-1, hp:2 };
+                break;
+            case 'pigeon':
+                e = { type:'pigeon', worldX:wx+120, y:90+Math.random()*100, w:28, h:14,
+                      speed:spd*0.9, dir:-1, hp:1, diving:false, diveDy:0,
+                      baseY:90+Math.random()*100, animFrame:0, animTimer:0 };
+                break;
+            case 'raccoon':
+                e = { type:'raccoon', worldX:wx, y:ROAD_Y-28, w:28, h:28,
+                      speed:spd*0.6, dir:1, hp:1, patrol:{min:wx-100,max:wx+120} };
+                break;
+            case 'yeti':
+                e = { type:'yeti', worldX:wx, y:ROAD_Y-36, w:40, h:36,
+                      speed:spd*0.5, dir:1, hp:3,
+                      patrol:{min:wx-120,max:wx+150}, animFrame:0, animTimer:0 };
+                break;
+            case 'eagle':
+                e = { type:'eagle', worldX:wx+220, y:55+Math.random()*80, w:44, h:18,
+                      speed:spd*1.2, dir:-1, hp:1, diving:false, diveDy:0,
+                      baseY:55+Math.random()*80, animFrame:0, animTimer:0 };
+                break;
+            case 'boulder':
+                e = { type:'boulder', worldX:wx+260, y:ROAD_Y-28, w:32, h:28,
+                      speed:spd*1.9, dir:-1, hp:2, rotation:0 };
+                break;
+            case 'ufo':
+                e = { type:'ufo', worldX:wx+150, y:50+Math.random()*70, w:50, h:22,
+                      speed:spd*0.75, dir:-1, hp:2, beamTimer:0, beamActive:false,
+                      baseY:50+Math.random()*70 };
+                break;
+            case 'asteroid':
+                e = { type:'asteroid', worldX:wx+250, y:10+Math.random()*50, w:30, h:28,
+                      speed:spd*2.1, dir:-1, hp:1, dy:spd*0.75, rotation:0 };
+                break;
+            case 'drone':
+                e = { type:'drone', worldX:kart.worldX-60, y:kart.y-28, w:34, h:16,
+                      speed:spd*1.3, dir:1, hp:1, animFrame:0, animTimer:0 };
+                break;
+        }
+        if (e) enemies.push(e);
+        nextEnemyX += gap;
+    }
+}
+
+// ==================== ENEMY UPDATE ====================
+function updateEnemies() {
+    for (var i = enemies.length - 1; i >= 0; i--) {
+        var e  = enemies[i];
+        var sx = e.worldX - cameraX;
+
+        // Cull far behind
+        if (e.worldX + e.w < cameraX - CULL_BEHIND) { enemies.splice(i, 1); continue; }
+
+        // Dead → FX + kill credit
+        if (e.hp <= 0) {
+            spawnExplosion(sx + e.w/2, e.y + e.h/2);
+            sfxKill();
+            kills++;
+            enemies.splice(i, 1);
+            continue;
+        }
+
+        // ── Per-type movement ──
+        switch (e.type) {
+
+            case 'gator':
+            case 'turtle':
+            case 'raccoon':
+                e.worldX += e.speed * e.dir;
+                if (e.worldX <= e.patrol.min || e.worldX + e.w >= e.patrol.max) e.dir *= -1;
+                break;
+
+            case 'snake':
+                e.worldX += e.speed * e.dir;
+                if (e.worldX <= e.patrol.min || e.worldX + e.w >= e.patrol.max) e.dir *= -1;
+                e.y = e.baseY + Math.sin(frameCount * 0.13) * 7;
+                break;
+
+            case 'yeti':
+                e.animTimer++;
+                if (e.animTimer >= 14) { e.animTimer=0; e.animFrame=(e.animFrame+1)%2; }
+                e.worldX += e.speed * e.dir;
+                if (e.worldX <= e.patrol.min || e.worldX + e.w >= e.patrol.max) e.dir *= -1;
+                if (frameCount % 90 === 0) { spawnDust(sx + e.w/2, ROAD_Y); sfxLand(); }
+                break;
+
+            case 'hawk':
+            case 'vulture':
+            case 'pigeon':
+            case 'eagle':
+                e.animTimer++;
+                if (e.animTimer >= 10) { e.animTimer=0; e.animFrame=(e.animFrame+1)%2; }
+                e.worldX += e.speed * e.dir;
+                if (!e.diving && Math.abs(kart.worldX - e.worldX) < 180) {
+                    e.diving = true; e.diveDy = 4.0 + e.speed * 0.25;
+                }
+                if (e.diving) {
+                    e.y += e.diveDy;
+                    if (e.y > ROAD_Y - 8 || e.y < 15) { e.diveDy *= -0.75; e.diving = (e.y > 60); }
+                } else {
+                    e.y = e.baseY + Math.sin(frameCount * 0.04 + e.worldX * 0.01) * 12;
+                }
+                if (e.worldX + e.w < cameraX - 120) { enemies.splice(i, 1); continue; }
+                break;
+
+            case 'tumbleweed':
+                e.worldX += e.speed * e.dir;
+                e.rotation += e.speed * 0.14;
+                e.dy += GRAVITY * 0.55;
+                e.y  += e.dy;
+                if (e.y + e.h >= ROAD_Y) { e.y = ROAD_Y - e.h; e.dy = -(2.5 + Math.random()*2.5); }
+                if (e.worldX + e.w < cameraX - 120) { enemies.splice(i, 1); continue; }
+                break;
+
+            case 'taxi':
+                e.worldX += e.speed * e.dir;
+                if (frameCount % 4 === 0)
+                    spawnParticle(sx + e.w + 2, e.y + e.h/2,
+                        1.5+Math.random()*2, (Math.random()-0.5)*1.5, 12, '#888899', 3);
+                if (e.worldX + e.w < cameraX - 120) { enemies.splice(i, 1); continue; }
+                break;
+
+            case 'boulder':
+                e.worldX += e.speed * e.dir;
+                e.rotation += e.speed * 0.11;
+                if (frameCount % 4 === 0) spawnDust(sx + e.w/2, ROAD_Y);
+                if (e.worldX + e.w < cameraX - 120) { enemies.splice(i, 1); continue; }
+                break;
+
+            case 'ufo':
+                e.worldX += e.speed * e.dir;
+                e.y = e.baseY + Math.sin(frameCount * 0.036) * 18;
+                e.beamTimer++;
+                if (e.beamTimer > 200) { e.beamActive = true; e.beamTimer = 0; }
+                if (e.beamActive && ++e.beamTimer > 55) e.beamActive = false;
+                // Beam damage when kart is directly below
+                if (e.beamActive && kart.invincible === 0 && kart.alive) {
+                    if (Math.abs(kart.worldX - e.worldX - e.w/2) < 28) {
+                        var dmgU = activeUpgrades.indexOf('tough') !== -1 ? 15 : HIT_DAMAGE;
+                        kart.hp -= dmgU; kart.invincible = HIT_INV_FRAMES;
+                        sfxHit(); noHitRun = false; shakeFrames = 8; shakeMagnitude = 6;
+                        spawnFeathers(KART_SCREEN_X + 26, kart.y + 14);
+                        if (kart.hp <= 0) { kart.hp = 0; kart.alive = false; }
+                    }
+                }
+                if (e.worldX + e.w < cameraX - 120) { enemies.splice(i, 1); continue; }
+                break;
+
+            case 'asteroid':
+                e.worldX += e.speed * e.dir;
+                e.y       += e.dy;
+                e.rotation += 0.12;
+                if (frameCount % 3 === 0)
+                    spawnParticle(sx+e.w/2, e.y, Math.random()*2-1, -1-Math.random(), 10, '#888888', 2);
+                if (e.worldX + e.w < cameraX - 120 || e.y > H) { enemies.splice(i, 1); continue; }
+                break;
+
+            case 'drone':
+                // Chase kart from behind/above
+                var dtx = kart.worldX - e.worldX;
+                var dty = (kart.y + kart.h/2) - (e.y + e.h/2);
+                e.worldX += e.speed * 0.5 + (dtx > 0 ? e.speed * 0.6 : 0);
+                e.y += dty * 0.025;
+                e.animTimer++;
+                if (e.animTimer >= 4) { e.animTimer=0; e.animFrame=(e.animFrame+1)%2; }
+                if (e.worldX + e.w < cameraX - 120) { enemies.splice(i, 1); continue; }
+                break;
+        }
+
+        // ── Kart collision ──
+        if (kart.invincible > 0 || !kart.alive || isDying) continue;
+        sx = e.worldX - cameraX;
+        var ks  = KART_SCREEN_X;
+        var okx = ks + kart.w - 5 > sx + 3 && ks + 5 < sx + e.w - 3;
+        var oky = kart.y + kart.h - 5 > e.y + 3 && kart.y + 5 < e.y + e.h - 3;
+        if (!okx || !oky) continue;
+
+        // Stomp: falling fast onto top third of enemy
+        if (kart.dy > 1.5 && kart.y + kart.h <= e.y + e.h * 0.38 + 4) {
+            e.hp = 0;
+            kart.dy = -5.5; kart.state = 'air'; kart.invincible = 28;
+        } else if (kart.shield) {
+            kart.shield = false; kart.invincible = 50;
+            shakeFrames = 5; shakeMagnitude = 4;
+            spawnFeathers(ks + 26, kart.y + 14);
+            spawnSparks(sx + e.w/2, e.y + e.h/2);
+        } else {
+            var dmg = activeUpgrades.indexOf('tough') !== -1 ? 15 : HIT_DAMAGE;
+            kart.hp -= dmg; kart.invincible = HIT_INV_FRAMES;
+            kart.dy = Math.min(kart.dy, -2);
+            shakeFrames = 10; shakeMagnitude = 7;
+            sfxHit(); noHitRun = false;
+            spawnFeathers(ks + 26, kart.y + 14);
+            spawnSparks(sx + e.w/2, e.y + e.h/2);
+            if (kart.hp <= 0) { kart.hp = 0; kart.alive = false; }
+        }
+        // Exhaust fire upgrade: boost blasts nearby enemies
+        if (kart.boostTimer > 12 && activeUpgrades.indexOf('exhaust_fire') !== -1) {
+            if (Math.abs(e.worldX - kart.worldX) < 90) {
+                e.hp = 0;
+                spawnExplosion(sx + e.w/2, e.y + e.h/2);
+            }
+        }
+    }
+}
+
+// ==================== ENEMY DRAWING ====================
+function drawEnemies() {
+    for (var i = 0; i < enemies.length; i++) {
+        var e  = enemies[i];
+        var sx = e.worldX - cameraX;
+        if (sx + e.w < -60 || sx > W + 60) continue;
+        switch (e.type) {
+            case 'gator':     _drawGator(sx, e);     break;
+            case 'hawk':      _drawHawk(sx, e);      break;
+            case 'turtle':    _drawTurtle(sx, e);    break;
+            case 'snake':     _drawSnake(sx, e);     break;
+            case 'vulture':   _drawVulture(sx, e);   break;
+            case 'tumbleweed':_drawTumbleweed(sx, e);break;
+            case 'taxi':      _drawTaxi(sx, e);      break;
+            case 'pigeon':    _drawPigeon(sx, e);    break;
+            case 'raccoon':   _drawRaccoon(sx, e);   break;
+            case 'yeti':      _drawYeti(sx, e);      break;
+            case 'eagle':     _drawEagle(sx, e);     break;
+            case 'boulder':   _drawBoulder(sx, e);   break;
+            case 'ufo':       _drawUfo(sx, e);       break;
+            case 'asteroid':  _drawAsteroid(sx, e);  break;
+            case 'drone':     _drawDrone(sx, e);     break;
+        }
+    }
+}
+
+function _drawGator(sx, e) {
+    var x = sx, y = e.y;
+    ctx.save();
+    if (e.dir < 0) { ctx.translate(sx + e.w, 0); ctx.scale(-1,1); x = 0; }
+    ctx.fillStyle = '#3a7d44';
+    ctx.fillRect(x, y+6, 48, 14);                 // body
+    ctx.fillRect(x+38, y+10, 14, 8);              // snout
+    ctx.fillStyle = '#2d6035';
+    for (var b=0;b<3;b++) ctx.fillRect(x+8+b*12, y+2, 8, 8);  // ridges
+    ctx.fillStyle = '#ffff00';
+    ctx.fillRect(x+30, y+6, 5, 5);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x+31, y+7, 3, 3);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x+40, y+18, 3, 4);
+    ctx.fillRect(x+46, y+18, 3, 4);               // teeth
+    ctx.restore();
+}
+
+function _drawHawk(sx, e) {
+    var x = sx, y = e.y;
+    var f = e.animFrame % 2;
+    ctx.fillStyle = '#7a4a18';
+    ctx.fillRect(x+10, y+4, 16, 10);              // body
+    ctx.fillStyle = '#5a3210';
+    // Wings
+    if (f === 0) {
+        ctx.fillRect(x, y, 10, 10);               // left wing up
+        ctx.fillRect(x+26, y, 10, 10);            // right wing up
+    } else {
+        ctx.fillRect(x-2, y+6, 12, 6);            // wings down
+        ctx.fillRect(x+26, y+6, 12, 6);
+    }
+    ctx.fillStyle = '#ffcc44';
+    ctx.fillRect(x+24, y+6, 4, 4);               // beak
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x+22, y+4, 4, 4);               // eye
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x+23, y+5, 2, 2);
+}
+
+function _drawTurtle(sx, e) {
+    var x = sx, y = e.y;
+    // Shell
+    ctx.fillStyle = '#3a7a30';
+    ctx.fillRect(x+4, y, 24, 16);
+    ctx.fillStyle = '#2a6020';
+    for (var tc=0;tc<3;tc++) ctx.fillRect(x+6+tc*8, y+2, 6, 6);
+    // Head
+    ctx.fillStyle = '#5a9040';
+    ctx.fillRect(x+22, y+8, 10, 8);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x+28, y+10, 3, 3);
+    // Feet
+    ctx.fillStyle = '#5a9040';
+    ctx.fillRect(x+2, y+13, 6, 5);
+    ctx.fillRect(x+24, y+13, 6, 5);
+}
+
+function _drawSnake(sx, e) {
+    var x = sx, y = e.y;
+    var wave = Math.sin(frameCount * 0.12);
+    ctx.fillStyle = '#c0801a';
+    for (var seg=0; seg<5; seg++) {
+        var sy2 = y + wave * Math.sin(seg * 0.9) * 5;
+        ctx.fillRect(x + seg*10, sy2, 12, 12);
+    }
+    ctx.fillStyle = '#e0a030';                    // head
+    ctx.fillRect(x+42, y-2, 14, 14);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x+50, y+1, 4, 4);
+    ctx.fillStyle = '#ff0000';                    // tongue
+    ctx.fillRect(x+54, y+5, 6, 2);
+    ctx.fillRect(x+58, y+3, 2, 2);
+    ctx.fillRect(x+58, y+7, 2, 2);
+    // Pattern on body
+    ctx.fillStyle = '#a06010';
+    for (var sp=0; sp<4; sp++) ctx.fillRect(x+4+sp*10, y+3, 5, 6);
+}
+
+function _drawVulture(sx, e) {
+    var x = sx, y = e.y;
+    var f = e.animFrame % 2;
+    ctx.fillStyle = '#2a2218';                    // dark body
+    ctx.fillRect(x+10, y+6, 20, 12);
+    ctx.fillStyle = '#1a1610';
+    if (f === 0) {
+        ctx.fillRect(x, y+2, 10, 10);
+        ctx.fillRect(x+30, y+2, 10, 10);
+    } else {
+        ctx.fillRect(x, y+8, 10, 6);
+        ctx.fillRect(x+30, y+8, 10, 6);
+    }
+    ctx.fillStyle = '#cc2200';                    // bald red head
+    ctx.fillRect(x+24, y, 10, 10);
+    ctx.fillStyle = '#aa3300';
+    ctx.fillRect(x+30, y+7, 6, 4);               // hooked beak
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x+26, y+2, 4, 4);
+}
+
+function _drawTumbleweed(sx, e) {
+    var x = sx + e.w/2, y = e.y + e.h/2;
+    var r = e.w/2 - 1;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(e.rotation || 0);
+    ctx.fillStyle = '#8a5a20';
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#c08030';
+    // Spoke lines
+    for (var sp=0; sp<6; sp++) {
+        var a = (sp / 6) * Math.PI * 2;
+        ctx.fillRect(-2, -r+2, 4, r*2-4);
+        ctx.rotate(Math.PI/6);
+    }
+    ctx.fillStyle = '#6a4010';
+    ctx.beginPath(); ctx.arc(0, 0, r*0.35, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+}
+
+function _drawTaxi(sx, e) {
+    var x = sx, y = e.y;
+    ctx.save();
+    if (e.dir < 0) { ctx.translate(sx + e.w, 0); ctx.scale(-1,1); x = 0; }
+    // Body
+    ctx.fillStyle = '#ffcc00';
+    ctx.fillRect(x+2, y+8, 54, 18);
+    // Roof
+    ctx.fillStyle = '#ffdd44';
+    ctx.fillRect(x+12, y, 34, 12);
+    // Checkerboard stripe
+    for (var ch=0; ch<8; ch++) {
+        ctx.fillStyle = ch%2===0 ? '#000000' : '#ffcc00';
+        ctx.fillRect(x+2+ch*7, y+22, 7, 4);
+    }
+    // Windows
+    ctx.fillStyle = '#88aacc';
+    ctx.fillRect(x+14, y+2, 12, 8);
+    ctx.fillRect(x+30, y+2, 12, 8);
+    // Headlights
+    ctx.fillStyle = '#ffff88';
+    ctx.fillRect(x+46, y+10, 8, 6);
+    // Wheels
+    ctx.fillStyle = '#222222';
+    ctx.fillRect(x+4, y+22, 14, 10);
+    ctx.fillRect(x+40, y+22, 14, 10);
+    ctx.fillStyle = '#888888';
+    ctx.fillRect(x+8, y+25, 6, 4);
+    ctx.fillRect(x+44, y+25, 6, 4);
+    ctx.restore();
+}
+
+function _drawPigeon(sx, e) {
+    var x = sx, y = e.y;
+    var f = e.animFrame % 2;
+    ctx.fillStyle = '#888898';
+    ctx.fillRect(x+6, y+4, 16, 8);
+    ctx.fillStyle = '#aaaacc';
+    if (f === 0) {
+        ctx.fillRect(x, y, 6, 8);
+        ctx.fillRect(x+22, y, 6, 8);
+    } else {
+        ctx.fillRect(x, y+5, 6, 5);
+        ctx.fillRect(x+22, y+5, 6, 5);
+    }
+    ctx.fillStyle = '#ccccee';
+    ctx.fillRect(x+10, y, 8, 6);                  // head
+    ctx.fillStyle = '#ff6644';
+    ctx.fillRect(x+16, y+3, 4, 3);                // beak
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x+12, y+1, 3, 3);
+    // Iridescent neck patch
+    ctx.fillStyle = 'rgba(150,80,200,0.50)';
+    ctx.fillRect(x+7, y+4, 8, 4);
+}
+
+function _drawRaccoon(sx, e) {
+    var x = sx, y = e.y;
+    ctx.save();
+    if (e.dir < 0) { ctx.translate(sx + e.w, 0); ctx.scale(-1,1); x = 0; }
+    ctx.fillStyle = '#888888';
+    ctx.fillRect(x+4, y+10, 20, 18);              // body
+    ctx.fillRect(x+14, y, 12, 14);                // head
+    ctx.fillStyle = '#555555';                    // tail
+    ctx.fillRect(x, y+16, 6, 12);
+    ctx.fillStyle = '#cccccc';
+    for (var rb=0;rb<3;rb++) ctx.fillRect(x, y+17+rb*3, 6, 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x+14, y+2, 12, 6);               // white face
+    ctx.fillStyle = '#000000';                    // mask
+    ctx.fillRect(x+15, y+3, 4, 4);
+    ctx.fillRect(x+21, y+3, 4, 4);
+    ctx.fillStyle = '#ff8844';
+    ctx.fillRect(x+21, y+9, 5, 3);               // snout
+    ctx.restore();
+}
+
+function _drawYeti(sx, e) {
+    var x = sx, y = e.y;
+    var f = e.animFrame % 2;
+    ctx.save();
+    if (e.dir < 0) { ctx.translate(sx + e.w, 0); ctx.scale(-1,1); x = 0; }
+    ctx.fillStyle = '#e0e8f0';
+    ctx.fillRect(x+6, y+14, 28, 22);              // body
+    ctx.fillRect(x+10, y, 20, 18);               // head
+    // Arms
+    if (f === 0) {
+        ctx.fillRect(x, y+14, 8, 18);
+        ctx.fillRect(x+32, y+14, 8, 18);
+    } else {
+        ctx.fillRect(x-2, y+10, 8, 18);
+        ctx.fillRect(x+34, y+10, 8, 18);
+    }
+    ctx.fillStyle = '#c8d8e8';                    // shading
+    ctx.fillRect(x+8, y+16, 24, 10);
+    ctx.fillStyle = '#ee1111';                    // angry eyes
+    ctx.fillRect(x+12, y+4, 6, 6);
+    ctx.fillRect(x+22, y+4, 6, 6);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x+13, y+5, 3, 3);
+    ctx.fillRect(x+23, y+5, 3, 3);
+    ctx.fillStyle = '#cccccc';                    // claws
+    ctx.fillRect(x, y+30, 4, 4);
+    ctx.fillRect(x+4, y+30, 4, 4);
+    ctx.fillRect(x+32, y+30, 4, 4);
+    ctx.fillRect(x+36, y+30, 4, 4);
+    ctx.restore();
+}
+
+function _drawEagle(sx, e) {
+    var x = sx, y = e.y;
+    var f = e.animFrame % 2;
+    ctx.fillStyle = '#5a3010';                    // brown body
+    ctx.fillRect(x+14, y+4, 16, 12);
+    ctx.fillStyle = '#ffffff';                    // white head
+    ctx.fillRect(x+26, y, 14, 12);
+    ctx.fillStyle = '#ffcc00';                    // yellow beak
+    ctx.fillRect(x+38, y+7, 6, 4);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x+30, y+2, 5, 5);               // eye
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x+31, y+3, 2, 2);
+    // Wide wings
+    ctx.fillStyle = '#3a2008';
+    if (f === 0) {
+        ctx.fillRect(x, y-2, 14, 10);
+        ctx.fillRect(x+30, y-2, 14, 10);
+    } else {
+        ctx.fillRect(x, y+6, 14, 8);
+        ctx.fillRect(x+30, y+6, 14, 8);
+    }
+    // Tail feathers
+    ctx.fillStyle = '#5a3010';
+    ctx.fillRect(x+8, y+12, 8, 6);
+    ctx.fillStyle = '#ffcc00';                    // talons
+    ctx.fillRect(x+14, y+14, 4, 4);
+    ctx.fillRect(x+22, y+14, 4, 4);
+}
+
+function _drawBoulder(sx, e) {
+    var x = sx + e.w/2, y = e.y + e.h/2;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(e.rotation || 0);
+    ctx.fillStyle = '#888888';
+    ctx.fillRect(-14, -12, 28, 24);
+    ctx.fillStyle = '#707070';
+    ctx.fillRect(-14, -12, 28, 8);
+    ctx.fillStyle = '#aaaaaa';                    // highlights
+    ctx.fillRect(-12, -10, 8, 5);
+    ctx.fillStyle = '#505050';                    // cracks
+    ctx.fillRect(-2, -6, 2, 14);
+    ctx.fillRect(-8, 2, 18, 2);
+    ctx.restore();
+}
+
+function _drawUfo(sx, e) {
+    var x = sx, y = e.y;
+    // Saucer dish
+    ctx.fillStyle = '#8888cc';
+    ctx.fillRect(x+8, y+10, 34, 10);
+    ctx.fillStyle = '#aaaaee';
+    ctx.fillRect(x+4, y+12, 42, 6);              // highlight
+    // Dome
+    ctx.fillStyle = '#44cc44';
+    ctx.fillRect(x+16, y, 18, 14);
+    ctx.fillStyle = '#66ee66';
+    ctx.fillRect(x+18, y+2, 10, 5);              // dome glass
+    // Beam when active
+    if (e.beamActive) {
+        var alpha = 0.25 + Math.sin(frameCount * 0.3) * 0.15;
+        ctx.fillStyle = 'rgba(100,255,100,' + alpha + ')';
+        ctx.fillRect(x+20, y+20, 10, ROAD_Y - e.y - 20);
+    }
+    // Blinking lights
+    ctx.fillStyle = frameCount % 20 < 10 ? '#ff4444' : '#ffff44';
+    ctx.fillRect(x+8, y+12, 4, 4);
+    ctx.fillRect(x+38, y+12, 4, 4);
+    // Underside glow
+    ctx.fillStyle = 'rgba(100,255,100,0.20)';
+    ctx.fillRect(x+4, y+18, 42, 4);
+}
+
+function _drawAsteroid(sx, e) {
+    var x = sx + e.w/2, y = e.y + e.h/2;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(e.rotation || 0);
+    ctx.fillStyle = '#888080';
+    // Jagged shape via overlapping rects
+    ctx.fillRect(-12, -10, 24, 20);
+    ctx.fillRect(-8,  -14, 16, 28);
+    ctx.fillRect(-14, -6,  28, 12);
+    ctx.fillStyle = '#666060';                    // craters
+    ctx.fillRect(-6, -4, 6, 6);
+    ctx.fillRect(2, 2, 5, 5);
+    ctx.fillStyle = '#aaaaaa';                    // sheen
+    ctx.fillRect(-10, -8, 5, 4);
+    ctx.restore();
+}
+
+function _drawDrone(sx, e) {
+    var x = sx, y = e.y;
+    var f = e.animFrame % 2;
+    ctx.fillStyle = '#333344';
+    ctx.fillRect(x+8, y+4, 18, 10);              // body
+    ctx.fillStyle = '#222233';
+    ctx.fillRect(x+12, y+6, 10, 6);              // detail
+    // Rotors
+    ctx.fillStyle = '#555566';
+    ctx.fillRect(x, y, 10, 4);                   // rear arm
+    ctx.fillRect(x+24, y, 10, 4);                // front arm
+    ctx.fillStyle = f===0 ? '#aaaacc' : '#8888aa';
+    ctx.fillRect(x-4, y-2, 14, 2);              // spinning rotor back
+    ctx.fillRect(x+24, y-2, 14, 2);             // spinning rotor front
+    // Eye / camera
+    ctx.fillStyle = '#ff2222';
+    ctx.fillRect(x+25, y+5, 5, 5);
+    ctx.fillStyle = '#ff8888';
+    ctx.fillRect(x+26, y+6, 2, 2);
+    // Exhaust
+    if (frameCount % 3 === 0)
+        spawnParticle(x+2, y+10, -1-Math.random(), (Math.random()-0.5)*0.5, 6, '#888899', 2);
+}
+
+// ==================== COLLECTIBLE GENERATION ====================
+function generateCollectibles() {
+    while (nextCollectibleX < cameraX + GEN_AHEAD) {
+        var roll = Math.random();
+        // corn=50%, breadcrumb=25%, fuel_can=15%, heart=10%
+        var type;
+        if      (roll < 0.50) type = 'corn';
+        else if (roll < 0.75) type = 'breadcrumb';
+        else if (roll < 0.90) type = 'fuel_can';
+        else                  type = 'heart';
+
+        var cy = ROAD_Y - 45 - Math.random() * 60;  // float above road
+        collectibles.push({
+            type:       type,
+            worldX:     nextCollectibleX,
+            y:          cy,
+            bobOffset:  Math.random() * Math.PI * 2,
+            collected:  false
+        });
+        nextCollectibleX += 150 + Math.random() * 180;
+    }
+}
+
+// ==================== COLLECTIBLE UPDATE ====================
+function updateCollectibles() {
+    var magnetRange = activeUpgrades.indexOf('magnet') !== -1 ? 130 : 0;
+    for (var i = collectibles.length - 1; i >= 0; i--) {
+        var c = collectibles[i];
+        if (c.collected)                          { collectibles.splice(i,1); continue; }
+        if (c.worldX < cameraX - CULL_BEHIND)    { collectibles.splice(i,1); continue; }
+
+        var cdx  = kart.worldX - c.worldX;
+        var cdy  = (kart.y + kart.h/2) - c.y;
+        var dist = Math.sqrt(cdx*cdx + cdy*cdy);
+
+        // Magnet pull
+        if (magnetRange > 0 && dist < magnetRange && dist > 1) {
+            c.worldX += (cdx / dist) * 6;
+            c.y      += (cdy / dist) * 6;
+        }
+
+        // Pickup radius
+        if (dist < 26) {
+            c.collected = true;
+            spawnCollectFX(c.worldX - cameraX, c.y);
+            sfxCollect();
+            if      (c.type === 'corn')       { corn++; }
+            else if (c.type === 'breadcrumb') { corn += 3; }
+            else if (c.type === 'fuel_can')   { kart.boostCharges++; updateHUD(); }
+            else if (c.type === 'heart')      { kart.hp = Math.min(kart.maxHp, kart.hp + 30); updateHUD(); }
+        }
+    }
+}
+
+// ==================== COLLECTIBLE DRAWING ====================
+function drawCollectibles() {
+    for (var i = 0; i < collectibles.length; i++) {
+        var c = collectibles[i];
+        if (c.collected) continue;
+        var sx = c.worldX - cameraX;
+        if (sx < -20 || sx > W + 20) continue;
+        var cy = c.y + Math.sin(frameCount * 0.09 + c.bobOffset) * 4;
+
+        if (c.type === 'corn') {
+            // Corn cob
+            ctx.fillStyle = '#228822';            // husk leaves
+            ctx.fillRect(sx-2, cy-4, 4, 18);
+            ctx.fillRect(sx+8, cy-6, 4, 10);
+            ctx.fillStyle = '#ffcc00';            // kernels
+            ctx.fillRect(sx, cy, 10, 16);
+            ctx.fillStyle = '#ffee44';
+            for (var kr=0;kr<3;kr++)
+                for (var kc=0;kc<2;kc++)
+                    ctx.fillRect(sx+2+kc*5, cy+2+kr*5, 3, 3);
+            ctx.fillStyle = '#ccaa00';
+            ctx.fillRect(sx, cy, 10, 3);          // top shade
+
+        } else if (c.type === 'breadcrumb') {
+            // Golden sparkle cluster
+            ctx.fillStyle = '#ddaa44';
+            ctx.fillRect(sx-4, cy-4, 8, 8);
+            ctx.fillStyle = '#ffee88';
+            ctx.fillRect(sx-2, cy-2, 4, 4);
+            // Sparkle rays
+            ctx.fillStyle = '#ffcc44';
+            ctx.fillRect(sx-6, cy, 4, 2);
+            ctx.fillRect(sx+4, cy, 4, 2);
+            ctx.fillRect(sx, cy-6, 2, 4);
+            ctx.fillRect(sx, cy+4, 2, 4);
+
+        } else if (c.type === 'fuel_can') {
+            // Red fuel can
+            ctx.fillStyle = '#cc2200';
+            ctx.fillRect(sx-6, cy-8, 14, 18);
+            ctx.fillStyle = '#ee4422';
+            ctx.fillRect(sx-4, cy-6, 10, 6);     // top highlight
+            ctx.fillStyle = '#881100';
+            ctx.fillRect(sx-6, cy+6, 14, 4);     // bottom shade
+            ctx.fillStyle = '#ffffff';            // label
+            ctx.fillRect(sx-3, cy-2, 8, 6);
+            ctx.fillStyle = '#cc2200';
+            ctx.fillRect(sx-1, cy-1, 4, 4);      // cap
+            ctx.fillStyle = '#888888';            // nozzle
+            ctx.fillRect(sx+5, cy-10, 3, 6);
+
+        } else if (c.type === 'heart') {
+            // Pixel heart
+            ctx.fillStyle = '#e74c3c';
+            ctx.fillRect(sx-7, cy-7, 5, 8);
+            ctx.fillRect(sx+2,  cy-7, 5, 8);
+            ctx.fillRect(sx-8, cy-3, 16, 5);
+            ctx.fillRect(sx-6, cy+1, 12, 4);
+            ctx.fillRect(sx-3, cy+4,  6, 4);
+            ctx.fillRect(sx-1, cy+7,  2, 3);
+            // Shine
+            ctx.fillStyle = '#ff8877';
+            ctx.fillRect(sx-5, cy-5, 3, 3);
+        }
+    }
+}
+
+// ==================== BOOTSTRAP ====================
+loop();
+</script>
+<style>
+    #backLink {
+        position: fixed;
+        bottom: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: #ff9944;
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 13px;
+        text-decoration: none;
+        opacity: 0.65;
+        transition: opacity 0.2s;
+        z-index: 999;
+    }
+    #backLink:hover { opacity: 1; }
+</style>
+<a id="backLink" href="index.html">&#8592; choose a game</a>
+</body>
+</html>
