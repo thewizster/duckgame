@@ -78,13 +78,37 @@
             min-height: 16px;
         }
 
+        #burstDisplay.empty { color: #777788; }
+
         #upgradeIcons {
-            color: #aaddff;
-            font-size: 11px;
-            text-shadow: 1px 1px 0 #000;
-            max-width: 140px;
-            line-height: 1.4;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 3px;
+            max-width: 172px;
         }
+
+        .chip {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            padding: 1px 5px 1px 2px;
+            background: rgba(0,0,0,0.55);
+            border: 1px solid;
+            border-radius: 3px;
+            color: #ffffff;
+            font-size: 10px;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        .chip img {
+            width: 16px;
+            height: 16px;
+            image-rendering: pixelated;
+        }
+
+        .chip.spent { opacity: 0.35; }
 
         #hudTopCenter {
             position: absolute;
@@ -401,18 +425,63 @@ const BIOMES = [
 
 // ==================== UPGRADE DEFINITIONS ====================
 const UPGRADE_DEFS = [
-    { id:'double_jump',    name:'Double Jump',    desc:'Jump once more in midair',           icon:'\u2191\u2191', color:'#3498db' },
-    { id:'shield',         name:'Bubble Shield',  desc:'Absorb one hit, then recharges',     icon:'\u25EF',       color:'#1abc9c' },
-    { id:'speed_boost',    name:'Tailwind',       desc:'+0.5 max speed',                     icon:'>>',           color:'#e67e22' },
-    { id:'hp_regen',       name:'Healing Waters', desc:'2x HP regen while in water',         icon:'~+',           color:'#2980b9' },
-    { id:'extra_burst',    name:'Power Feathers', desc:'+1 burst charge',                    icon:'+E',           color:'#f1c40f' },
-    { id:'magnet',         name:'Fish Magnet',    desc:'Auto-collect fish within 120px',     icon:'())',          color:'#9b59b6' },
-    { id:'damage_return',  name:'Spike Feathers', desc:'Burst kills refund 1 burst charge',  icon:'><',           color:'#e74c3c' },
-    { id:'extended_burst', name:'Soaring Wings',  desc:'Burst power +3',                     icon:'/\\',          color:'#16a085' },
-    { id:'wider_plat',     name:'Sea Legs',       desc:'Platforms appear wider',             icon:'___',          color:'#8e44ad' },
-    { id:'deep_lungs',     name:'Deep Lungs',     desc:'Hold your breath twice as long',     icon:'O2',           color:'#48c9b0' },
-    { id:'hp_up',          name:'Hearty Duck',    desc:'+25 max HP and restore 25 HP',       icon:'<3',           color:'#c0392b' }
+    { id:'double_jump',    name:'Double Jump',    short:'DBL JUMP', desc:'Jump once more in midair',           color:'#3498db' },
+    { id:'shield',         name:'Bubble Shield',  short:'SHIELD',   desc:'Absorb one hit, then recharges',     color:'#1abc9c' },
+    { id:'speed_boost',    name:'Tailwind',       short:'TAILWIND', desc:'+0.5 max speed',                     color:'#e67e22' },
+    { id:'hp_regen',       name:'Healing Waters', short:'HEALING',  desc:'Heal twice as fast while floating',  color:'#2980b9' },
+    { id:'extra_burst',    name:'Power Feathers', short:'+BURST',   desc:'+1 burst charge',                    color:'#f1c40f' },
+    { id:'magnet',         name:'Fish Magnet',    short:'MAGNET',   desc:'Auto-collect fish within 120px',     color:'#9b59b6' },
+    { id:'damage_return',  name:'Spike Feathers', short:'SPIKES',   desc:'Burst kills refund 1 burst charge',  color:'#e74c3c' },
+    { id:'extended_burst', name:'Soaring Wings',  short:'WINGS',    desc:'Burst power +3',                     color:'#16a085' },
+    { id:'wider_plat',     name:'Sea Legs',       short:'SEA LEGS', desc:'Platforms appear wider',             color:'#8e44ad' },
+    { id:'deep_lungs',     name:'Deep Lungs',     short:'LUNGS',    desc:'Hold your breath twice as long',     color:'#48c9b0' },
+    { id:'hp_up',          name:'Hearty Duck',    short:'HEARTY',   desc:'+25 max HP and restore 25 HP',       color:'#c0392b' }
 ];
+
+// ==================== UPGRADE ICONS ====================
+// 8x8 pixel maps; '.' is transparent, other letters index ICON_PALETTE
+var ICON_PALETTE = {
+    W:'#ffffff', Y:'#ffd23f', O:'#ff8a1f', R:'#e5383b', B:'#2f7de1', L:'#9fdcff',
+    T:'#2ec4a6', S:'#b8c2cc', N:'#9a5b2c', D:'#6b3b18'
+};
+var ICON_ART = {
+    double_jump:    ['...WW...','..WWWW..','.WW..WW.','...BB...','..BBBB..','.BB..BB.','B......B','........'],
+    shield:         ['..LLLL..','.L....L.','L.WW...L','L.W....L','L......L','L......L','.L....L.','..LLLL..'],
+    speed_boost:    ['........','WWWWWW..','......W.','..LLLLLL','........','WWWW....','....W...','.LLLLL..'],
+    hp_regen:       ['...BB...','..BBBB..','.BBWBBB.','.BWWWBB.','.BBWBBB.','.BBBBBB.','..BBBB..','........'],
+    extra_burst:    ['....YY..','...YY...','..YY....','.YYYYY..','...YY...','..YY....','.YY.....','Y.......'],
+    magnet:         ['.SS..SS.','.RR..RR.','.RR..RR.','.RR..RR.','.RR..RR.','.RRRRRR.','..RRRR..','........'],
+    damage_return:  ['R..R..R.','.R.R.R..','..RRR...','RRRYRRR.','..RRR...','.R.R.R..','R..R..R.','........'],
+    extended_burst: ['........','T.....T.','TT...TT.','TTT.TTT.','.TTWTT..','..TWT...','...W....','........'],
+    wider_plat:     ['........','........','NNNNNNNN','NDNNNDNN','NNNNNNNN','.D....D.','.D....D.','........'],
+    deep_lungs:     ['.....LL.','....LW.L','....L..L','.LL..LL.','LW.L....','L..L.L..','.LL.LWL.','.....L..'],
+    hp_up:          ['.RR.RR..','RWRRRRR.','RRRRRRR.','RRRRRRR.','.RRRRR..','..RRR...','...R....','........'],
+    tough:          ['SSSSSSS.','SSSWSSS.','SSWWWSS.','SSSWSSS.','.SSSSS..','..SSS...','...S....','........'],
+    phoenix:        ['...O....','..OO..O.','..OYO.O.','.OOYOOO.','.OYYYOO.','OOYYYYOO','.OOYYOO.','..OOOO..']
+};
+
+function drawPixelIcon(art, x, y, px, c) {
+    c = c || ctx;
+    for (var r = 0; r < art.length; r++) {
+        for (var k = 0; k < art[r].length; k++) {
+            var col = ICON_PALETTE[art[r][k]];
+            if (!col) continue;
+            c.fillStyle = col;
+            c.fillRect(x + k * px, y + r * px, px, px);
+        }
+    }
+}
+
+// Pre-render each icon to a data URL so the HTML HUD can show it as an <img>
+var ICON_URLS = {};
+(function() {
+    for (var id in ICON_ART) {
+        var cv = document.createElement('canvas');
+        cv.width = 16; cv.height = 16;
+        drawPixelIcon(ICON_ART[id], 0, 0, 2, cv.getContext('2d'));
+        ICON_URLS[id] = cv.toDataURL();
+    }
+})();
 
 // ==================== ACHIEVEMENT DEFINITIONS ====================
 const ACHIEVEMENT_DEFS = [
@@ -2235,23 +2304,54 @@ function updateHUD() {
     hpEl.style.width      = pct + '%';
     hpEl.style.background = pct > 60 ? '#2ecc71' : pct > 30 ? '#f1c40f' : '#e74c3c';
 
-    var bursts = '';
-    for (var b = 0; b < duck.burstCharges; b++) bursts += '\u26A1';
-    document.getElementById('burstDisplay').textContent  = bursts || '\u25CB';
+    var n = duck.burstCharges, bursts = '';
+    if (n > 5) bursts = '\u26A1 x' + n;
+    else for (var b = 0; b < n; b++) bursts += '\u26A1';
+    var burstEl = document.getElementById('burstDisplay');
+    burstEl.textContent = 'BURST ' + (bursts || '0');
+    burstEl.className   = n > 0 ? '' : 'empty';
     document.getElementById('distanceDisplay').textContent = distMeters() + 'm';
     document.getElementById('biomeDisplay').textContent   = biomeLabel();
     document.getElementById('hpBarOuter').className      = hpFlashTimer > 0 ? 'hit' : '';
     document.getElementById('fishDisplay').textContent    = '\uD83D\uDC1F ' + fish;
     document.getElementById('killDisplay').textContent    = '\uD83D\uDC80 ' + kills;
 
-    var icons = '';
+    updateUpgradeChips();
+}
+
+var hudChipKey = null;
+
+function updateUpgradeChips() {
+    var chips = [];
     for (var ui = 0; ui < activeUpgrades.length; ui++) {
-        var def = null;
-        for (var di = 0; di < UPGRADE_DEFS.length; di++)
-            if (UPGRADE_DEFS[di].id === activeUpgrades[ui]) { def = UPGRADE_DEFS[di]; break; }
-        if (def) icons += def.icon + ' ';
+        var id = activeUpgrades[ui];
+        if (id === 'tough') { chips.push({ id:'tough', label:'TOUGH', color:'#b8c2cc' }); continue; }
+        for (var di = 0; di < UPGRADE_DEFS.length; di++) {
+            var def = UPGRADE_DEFS[di];
+            if (def.id === id) { chips.push({ id:id, label:def.short, color:def.color }); break; }
+        }
     }
-    document.getElementById('upgradeIcons').textContent = icons;
+    if (duck.phoenix) chips.push({ id:'phoenix', label:'REBIRTH', color:'#ff8a1f', spent:phoenixUsed });
+
+    // updateHUD runs every frame, so only touch the DOM when the set changes
+    var key = chips.map(function(c) { return c.id + (c.spent ? '*' : ''); }).join(',');
+    if (key === hudChipKey) return;
+    hudChipKey = key;
+
+    var box = document.getElementById('upgradeIcons');
+    while (box.firstChild) box.removeChild(box.firstChild);
+    for (var ci = 0; ci < chips.length; ci++) {
+        var c  = chips[ci];
+        var el = document.createElement('span');
+        el.className = 'chip' + (c.spent ? ' spent' : '');
+        el.style.borderColor = c.color;
+        var img = document.createElement('img');
+        img.src = ICON_URLS[c.id];
+        img.alt = '';
+        el.appendChild(img);
+        el.appendChild(document.createTextNode(c.label));
+        box.appendChild(el);
+    }
 }
 
 // ==================== BIOME TRANSITION ====================
@@ -2595,10 +2695,8 @@ function drawUpgradeScreen() {
         ctx.fillText('[' + (i + 1) + ']', cx + 8, cy + 22);
 
         // Icon
-        ctx.font = '22px Courier New';
+        drawPixelIcon(ICON_ART[up.id], cx + cw/2 - 16, cy + 28, 4);
         ctx.textAlign = 'center';
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(up.icon, cx + cw/2, cy + 54);
 
         // Name
         ctx.font = 'bold 14px Courier New';
