@@ -495,7 +495,7 @@ const ACHIEVEMENT_DEFS = [
     { id:'dist_2000',      name:'Marathon Duck',   desc:'Reach 2000m in one run'                },
     { id:'reach_swamp',    name:'Swamp Things',    desc:'Enter the Deep Swamp'                  },
     { id:'reach_arctic',   name:'Frostbite',       desc:'Enter the Arctic Tundra'               },
-    { id:'reach_volcanic', name:'Hot Feet',        desc:'Enter the Volcanic Wasteland'          },
+    { id:'reach_volcanic', name:'Hot Feet',        desc:'Enter the Volcanic Waste'              },
     { id:'reach_sky',      name:'Sky Duck',        desc:'Enter the Sky Kingdom'                 },
     { id:'kills_10',       name:'Bully',           desc:'Defeat 10 enemies in one run'          },
     { id:'upgrade_3',      name:'Power Up',        desc:'Take 3 upgrades in one run'            },
@@ -1812,7 +1812,7 @@ function updateBoss() {
             var wet = biome.floorType === 'water' || biome.floorType === 'swamp';
             collectibles.push({ type:'feather', worldX:cameraX + W + 20,
                 y: wet ? biome.floorY - 26 : 230 + Math.random() * 60,
-                collected:false, bobOff:Math.random() * 6 });
+                collected:false, bobOffset:Math.random() * 6 });
         }
     }
 
