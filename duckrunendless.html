@@ -158,6 +158,7 @@
 
         #jumpBtn  { left: 12px; }
         #burstBtn { right: 12px; }
+        #diveBtn  { left: 50%; transform: translateX(-50%); width: 120px; }
 
         @media (pointer: coarse) {
             #touchControls { display: block; }
@@ -186,6 +187,7 @@
 
     <div id="touchControls">
         <button class="touch-btn" id="jumpBtn">SWIM / HOP</button>
+        <button class="touch-btn" id="diveBtn">&#x25BC; DIVE</button>
         <button class="touch-btn" id="burstBtn">&#x26A1; BURST</button>
     </div>
 </div>
@@ -287,6 +289,7 @@ function sfxCollect()  { playTone(900,'sine',    0.09,0.06); setTimeout(function
 function sfxUpgrade()  { [N.C5,N.E5,N.G5,N.C6].forEach(function(f,i){ playTone(f,'square',0.09,0.11,i*0.09); }); }
 function sfxBiome()    { [N.G4,N.C5,N.E5,N.G5].forEach(function(f,i){ playTone(f,'square',0.11,0.14,i*0.10); }); }
 function sfxKill()     { playTone(600,'square',  0.08,0.05); setTimeout(function(){ playTone(400,'square',0.07,0.06); }, 55); }
+function sfxGasp()     { playTone(300,'sine',0.08,0.08); setTimeout(function(){ playTone(520,'sine',0.07,0.12); }, 70); }
 function sfxHpRegen()  { playTone(520,'sine',    0.05,0.09); }
 function sfxBossAlert(){ [N.C4,N.G3,N.C4,N.G3].forEach(function(f,i){ playTone(f,'sawtooth',0.14,0.18,i*0.18); }); }
 
@@ -305,8 +308,14 @@ const HIT_INV_FRAMES    = 80;
 const WATER_SURFACE_Y   = 330;
 const LAVA_SURFACE_Y    = 370;
 const ICE_FLOOR_Y       = 400;
-const HP_REGEN_INTERVAL = 60;
+const HP_REGEN_INTERVAL = 120; // surface-only healing; Healing Waters halves it
 const HP_REGEN_AMOUNT   = 8;
+const BREATH_MAX        = 300; // frames the duck can stay fully underwater
+const BREATH_REFILL     = 4;
+const DROWN_INTERVAL    = 30;
+const DROWN_DAMAGE      = 8;
+const DIVE_FORCE        = 0.3;
+const BUOYANCY          = 0.03;
 const UPGRADE_EVERY_PX  = 6000;
 const CULL_BEHIND       = 400;
 const GEN_AHEAD         = 950;
@@ -401,6 +410,7 @@ const UPGRADE_DEFS = [
     { id:'damage_return',  name:'Spike Feathers', desc:'Burst kills refund 1 burst charge',  icon:'><',           color:'#e74c3c' },
     { id:'extended_burst', name:'Soaring Wings',  desc:'Burst power +3',                     icon:'/\\',          color:'#16a085' },
     { id:'wider_plat',     name:'Sea Legs',       desc:'Platforms appear wider',             icon:'___',          color:'#8e44ad' },
+    { id:'deep_lungs',     name:'Deep Lungs',     desc:'Hold your breath twice as long',     icon:'O2',           color:'#48c9b0' },
     { id:'hp_up',          name:'Hearty Duck',    desc:'+25 max HP and restore 25 HP',       icon:'<3',           color:'#c0392b' }
 ];
 
@@ -435,8 +445,8 @@ const ABILITY_POOL = [
     },
     {
         name:'Water Duck', unlock:null,
-        desc:'Start with Healing Waters upgrade active',
-        apply:function() { activeUpgrades.push('hp_regen'); }
+        desc:'Start with Healing Waters and Deep Lungs',
+        apply:function() { activeUpgrades.push('hp_regen', 'deep_lungs'); }
     },
     {
         name:'Swift Duck', unlock:'dist_500',
@@ -525,6 +535,7 @@ let lapBosses        = [];  // boss indices beaten during the current lap
 let hpFlashTimer     = 0;
 let phoenixUsed      = false;
 let achReturnState   = 'TITLE';
+let touchDive        = false;
 
 // Screen shake
 let shakeFrames    = 0;
@@ -607,8 +618,8 @@ function biomeLabel() {
 }
 
 // ==================== PARTICLE SYSTEM ====================
-function spawnParticle(x, y, dx, dy, life, color, size) {
-    particles.push({ x:x, y:y, dx:dx, dy:dy, life:life, maxLife:life, color:color, size:size });
+function spawnParticle(x, y, dx, dy, life, color, size, grav) {
+    particles.push({ x:x, y:y, dx:dx, dy:dy, life:life, maxLife:life, color:color, size:size, g:grav === undefined ? 0.12 : grav });
 }
 
 function spawnSplash(x, y, color) {
@@ -661,7 +672,7 @@ function updateParticles() {
         var p = particles[i];
         p.x  += p.dx;
         p.y  += p.dy;
-        p.dy += 0.12;
+        p.dy += p.g;
         p.life--;
         if (p.life <= 0) particles.splice(i, 1);
     }
@@ -1437,8 +1448,19 @@ function updateEnemies() {
     }
 }
 
-function hurtDuck() {
-    if (duck.invincible > 0 || !duck.alive || isDying) return;
+function hurtDuck(amount, drowning) {
+    if (!duck.alive || isDying) return;
+    if (drowning) {
+        // Drowning bypasses shield and invincibility, and doesn't knock the duck around
+        duck.hp -= amount;
+        hpFlashTimer = 16;
+        shakeFrames = Math.max(shakeFrames, 4); shakeMagnitude = Math.max(shakeMagnitude, 2);
+        playTone(110, 'sine', 0.12, 0.25);
+        noHitRun = false;
+        if (duck.hp <= 0) { duck.hp = 0; duck.alive = false; }
+        return;
+    }
+    if (duck.invincible > 0) return;
     if (duck.shield) {
         duck.shield     = false;
         duck.invincible = 50;
@@ -1446,7 +1468,7 @@ function hurtDuck() {
         spawnFeathers(DUCK_SCREEN_X + 16, duck.y + 14);
         return;
     }
-    var dmg = activeUpgrades.indexOf('tough') !== -1 ? 15 : HIT_DAMAGE;
+    var dmg = amount || (activeUpgrades.indexOf('tough') !== -1 ? 15 : HIT_DAMAGE);
     duck.hp        -= dmg;
     duck.invincible = HIT_INV_FRAMES;
     hpFlashTimer    = 24;
@@ -1456,6 +1478,36 @@ function hurtDuck() {
     noHitRun = false;
     duck.dy  = Math.min(duck.dy, -2);
     if (duck.hp <= 0) { duck.hp = 0; duck.alive = false; }
+}
+
+// ==================== DUCK WATER FX ====================
+function drawDuckWaterFX() {
+    var b = BIOMES[currentBiomeIdx];
+    if (b.floorType !== 'water' && b.floorType !== 'swamp') return;
+    var x = DUCK_SCREEN_X, y = duck.y;
+    if (y + duck.h > b.floorY) {
+        var top = Math.max(y, b.floorY);
+        ctx.globalAlpha = 0.45;
+        ctx.fillStyle = b.waterColor;
+        ctx.fillRect(x, top, duck.w + 4, y + duck.h - top);
+        ctx.globalAlpha = 1;
+    }
+    // Air meter: six bubbles above the duck's head
+    var mb = duck.maxBreath || BREATH_MAX;
+    if (duck.breath >= mb && y + 6 <= b.floorY) return;
+    var filled = Math.ceil(duck.breath / mb * 6);
+    var flash  = duck.breath === 0 && Math.floor(frameCount / 8) % 2 === 0;
+    for (var i = 0; i < 6; i++) {
+        ctx.beginPath();
+        ctx.arc(x + 3 + i * 6, y - 10, 2.6, 0, Math.PI * 2);
+        if (i < filled) {
+            ctx.fillStyle = '#bfe8ff'; ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+        } else {
+            ctx.strokeStyle = flash ? '#ff4040' : 'rgba(255,255,255,0.55)';
+        }
+        ctx.stroke();
+    }
 }
 
 // ==================== BOSS SYSTEM ====================
@@ -2032,11 +2084,23 @@ function updatePhysics() {
     var b       = BIOMES[currentBiomeIdx];
     var inWater = (b.floorType === 'water' || b.floorType === 'swamp') &&
                   (duck.y + duck.h > b.floorY);
+    var diving  = inWater && !!(keyHeld.ArrowDown || keyHeld.KeyS || touchDive);
 
-    // Gravity
+    // Gravity / buoyancy
     var effG = duck.swiftMode ? GRAVITY * 0.82 : GRAVITY;
-    if (inWater) { duck.dy += effG * 0.16; if (duck.dy > 2) duck.dy = 2; }
-    else         { duck.dy += effG;        if (duck.dy > MAX_FALL) duck.dy = MAX_FALL; }
+    if (diving) {
+        duck.dy += DIVE_FORCE;
+        duck.dy *= 0.9;
+    } else if (inWater) {
+        // Spring toward a float line with half the body underwater, bobbing gently
+        var floatY = b.floorY - duck.h * 0.5 + Math.sin(frameCount * 0.08) * 1.5;
+        duck.dy += Math.max(-0.35, Math.min(0.35, -(duck.y - floatY) * BUOYANCY)); // capped so deep dives don't cork out
+        // Heavy drag underwater, except on fast upward moves so bursts and strokes still carry
+        duck.dy *= (duck.y + 6 > b.floorY && duck.dy > -4) ? 0.9 : 0.97;
+    } else {
+        duck.dy += effG;
+        if (duck.dy > MAX_FALL) duck.dy = MAX_FALL;
+    }
     duck.y += duck.dy;
 
     if (inWater && duck.y + duck.h > H - 4) { duck.y = H - 4 - duck.h; duck.dy = 0; }
@@ -2072,8 +2136,32 @@ function updatePhysics() {
         }
     }
 
-    // ── Water HP regen ──
-    if (inWater) {
+    // ── Breath ──
+    var submerged = inWater && duck.y + 6 > b.floorY;
+    duck.maxBreath = BREATH_MAX * (activeUpgrades.indexOf('deep_lungs') !== -1 ? 2 : 1);
+    if (inWater && !meta.diveHint) {
+        meta.diveHint = true; saveMeta();
+        toasts.push({ text:'\u2193 / S: DIVE   \u00B7   WATCH YOUR AIR!', timer:320 });
+    }
+    if (submerged) {
+        duck.breath = Math.max(0, duck.breath - 1);
+        if (duck.breath === 0) {
+            duck.drownTimer++;
+            if (duck.drownTimer % 5 === 0)
+                spawnParticle(DUCK_SCREEN_X + 30, duck.y + 8, randBetween(-0.6, 0.6), -1.6, 34, '#d8f0ff', 3, -0.02);
+            if (duck.drownTimer >= DROWN_INTERVAL) { duck.drownTimer = 0; hurtDuck(DROWN_DAMAGE, true); }
+        } else if (duck.breath < duck.maxBreath * 0.3 && frameCount % 12 === 0) {
+            spawnParticle(DUCK_SCREEN_X + 32, duck.y + 8, randBetween(-0.3, 0.3), -1.2, 30, '#d8f0ff', 2, -0.02);
+        }
+    } else {
+        if (duck.wasSubmerged && duck.breath < duck.maxBreath * 0.5) sfxGasp();
+        duck.breath = Math.min(duck.maxBreath, duck.breath + BREATH_REFILL);
+        duck.drownTimer = 0;
+    }
+    duck.wasSubmerged = submerged;
+
+    // ── Water HP regen (only while floating at the surface) ──
+    if (inWater && !submerged && !diving) {
         hpRegenTimer++;
         var regenInterval = activeUpgrades.indexOf('hp_regen') !== -1
             ? Math.floor(HP_REGEN_INTERVAL / 2) : HP_REGEN_INTERVAL;
@@ -2202,6 +2290,8 @@ function startRun() {
     duck.animFrame = 0; duck.animTimer = 0; duck.invincible = 0;
     duck.shield = false; duck.airJumps = 0; duck.maxAirJumps = 0;
     duck.alive = true; duck.swiftMode = false; duck.phoenix = false;
+    duck.breath = BREATH_MAX; duck.maxBreath = BREATH_MAX; duck.drownTimer = 0; duck.wasSubmerged = false;
+    touchDive = false;
 
     // Reset run state
     fish = 0; kills = 0; distancePx = 0;
@@ -2379,7 +2469,7 @@ function drawTitleScreen() {
     // Controls hint
     ctx.font = '12px Courier New';
     ctx.fillStyle = '#555566';
-    ctx.fillText('SPACE: Jump / Swim     SHIFT: Burst     ESC: Pause     A: Achievements', W/2, H - 22);
+    ctx.fillText('SPACE: Jump/Swim   \u2193: Dive   SHIFT: Burst   ESC: Pause   A: Achievements', W/2, H - 22);
     drawButton('[A] ACHIEVEMENTS', W/2 - 100, 312, 200, 30, function() { openAchievements('TITLE'); });
 
     ctx.textAlign = 'left';
@@ -2732,6 +2822,8 @@ function closeAchievements() {
 function pauseGame() {
     if (gameState !== 'PLAYING' || isDying) return;
     gameState = 'PAUSED';
+    keyHeld = {};
+    touchDive = false;
     stopMusic();
 }
 
@@ -2764,6 +2856,7 @@ function goToAbilityPick() {
 }
 
 document.addEventListener('keydown', function(e) {
+    if (e.code === 'ArrowDown' && gameState === 'PLAYING') e.preventDefault();
     if (keyHeld[e.code]) return;
     keyHeld[e.code] = true;
     initAudio();
@@ -2867,6 +2960,11 @@ document.getElementById('jumpBtn').addEventListener('touchstart', function(e) {
     else if (gameState === 'PLAYING') doJump();
 }, { passive: false });
 
+var diveBtn = document.getElementById('diveBtn');
+diveBtn.addEventListener('touchstart', function(e) { e.preventDefault(); initAudio(); touchDive = true; }, { passive: false });
+diveBtn.addEventListener('touchend',    function(e) { e.preventDefault(); touchDive = false; }, { passive: false });
+diveBtn.addEventListener('touchcancel', function()  { touchDive = false; });
+
 document.getElementById('burstBtn').addEventListener('touchstart', function(e) {
     e.preventDefault(); initAudio();
     if (gameState === 'PLAYING') doBurst();
@@ -2927,6 +3025,7 @@ function loop() {
         drawBoss();
         drawBossShots();
         drawDuck(DUCK_SCREEN_X, duck.y, duck.animFrame, duck.invincible, duck.shield);
+        drawDuckWaterFX();
         drawParticles();
         if (hpFlashTimer > 0) {
             ctx.fillStyle = 'rgba(255,0,0,' + (hpFlashTimer / 24 * 0.22) + ')';
