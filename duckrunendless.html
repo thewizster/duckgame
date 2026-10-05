@@ -242,7 +242,9 @@ const BIOME_MUSIC = [
     // 3: Volcanic — diminished, tense
     { seq:[N.C4,N.Eb4,N.F3s,N.A3, N.C4,N.Eb4,N.F3s,N.C4, N.A3,N.F3s,N.Eb4,N.C4, N.Bb3,N.Ab3,N.Bb3,N.C4], tempo:120 },
     // 4: Sky Kingdom — major 7th arpeggios, ethereal
-    { seq:[N.C5,N.E5,N.G5,N.B4, N.C5,N.G5,N.E5,N.C5, N.D5,N.E5,N.G5,N.C5, N.G4,N.C5,N.E5,N.G5], tempo:130 }
+    { seq:[N.C5,N.E5,N.G5,N.B4, N.C5,N.G5,N.E5,N.C5, N.D5,N.E5,N.G5,N.C5, N.G4,N.C5,N.E5,N.G5], tempo:130 },
+    // 5: Boss fight — driving C minor
+    { seq:[N.C4,N.C4,N.Eb4,N.C4, N.G3,N.G3,N.Bb3,N.G3, N.C4,N.C4,N.Eb4,N.F4, N.Eb4,N.D4,N.C4,N.B3], tempo:115 }
 ];
 
 function startMusic(biomeIdx) {
@@ -408,7 +410,9 @@ const ACHIEVEMENT_DEFS = [
     { id:'reach_sky',      name:'Sky Duck',        desc:'Enter the Sky Kingdom'                 },
     { id:'kills_10',       name:'Bully',           desc:'Defeat 10 enemies in one run'          },
     { id:'upgrade_3',      name:'Power Up',        desc:'Take 3 upgrades in one run'            },
-    { id:'no_hit_500',     name:'Untouchable',     desc:'Reach 500m without taking damage'      }
+    { id:'no_hit_500',     name:'Untouchable',     desc:'Reach 500m without taking damage'      },
+    { id:'boss_1',         name:'Giant Slayer',    desc:'Defeat a boss'                         },
+    { id:'boss_all',       name:'Legend of the Pond', desc:'Defeat all 5 bosses in one run'     }
 ];
 
 // ==================== STARTING ABILITY POOL ====================
@@ -1213,6 +1217,7 @@ function drawCollectibles() {
 
 // ==================== ENEMY SPAWNING ====================
 function spawnEnemies() {
+    if (boss) { nextEnemyX = Math.max(nextEnemyX, cameraX + GEN_AHEAD); return; }
     while (nextEnemyX < cameraX + GEN_AHEAD) {
         var b    = BIOMES[currentBiomeIdx];
         var pool = b.enemies;
@@ -1388,24 +1393,549 @@ function updateEnemies() {
                 e.hp = 0;
                 duck.invincible = 24;
                 if (activeUpgrades.indexOf('damage_return') !== -1) duck.burstCharges++;
-            } else if (duck.shield) {
-                duck.shield      = false;
-                duck.invincible  = 50;
-                shakeFrames      = 5; shakeMagnitude = 4;
-                spawnFeathers(DUCK_SCREEN_X + 16, duck.y + 14);
             } else {
-                var dmg = activeUpgrades.indexOf('tough') !== -1 ? 15 : HIT_DAMAGE;
-                duck.hp        -= dmg;
-                duck.invincible = HIT_INV_FRAMES;
-                shakeFrames     = 10; shakeMagnitude = 7;
-                sfxHit();
-                spawnFeathers(DUCK_SCREEN_X + 16, duck.y + 14);
-                noHitRun  = false;
-                duck.dy   = Math.min(duck.dy, -2);
-                if (duck.hp <= 0) { duck.hp = 0; duck.alive = false; }
+                hurtDuck();
             }
         }
     }
+}
+
+function hurtDuck() {
+    if (duck.invincible > 0 || !duck.alive || isDying) return;
+    if (duck.shield) {
+        duck.shield     = false;
+        duck.invincible = 50;
+        shakeFrames     = 5; shakeMagnitude = 4;
+        spawnFeathers(DUCK_SCREEN_X + 16, duck.y + 14);
+        return;
+    }
+    var dmg = activeUpgrades.indexOf('tough') !== -1 ? 15 : HIT_DAMAGE;
+    duck.hp        -= dmg;
+    duck.invincible = HIT_INV_FRAMES;
+    shakeFrames     = 10; shakeMagnitude = 7;
+    sfxHit();
+    spawnFeathers(DUCK_SCREEN_X + 16, duck.y + 14);
+    noHitRun = false;
+    duck.dy  = Math.min(duck.dy, -2);
+    if (duck.hp <= 0) { duck.hp = 0; duck.alive = false; }
+}
+
+// ==================== BOSS SYSTEM ====================
+var boss         = null;
+var bossShots    = [];  // screen-space projectiles
+var bossCols     = [];  // world-space telegraphed column hazards
+var bossesBeaten = [];
+
+var BOSS_DEFS = [
+    { name:'KING KRAKEN',   w:96,  h:84, hp:6, base:'water',  shot:['#2a1040','#b070e0'],
+      attacks:[['tentacle','tentacle'], ['tentacle','lob','tentacle'], ['tentacle','spray','tentacle','lob']] },
+    { name:'BOG TYRANT',    w:112, h:56, hp:7, base:'water',  shot:['#4a3418','#8a6a38'],
+      attacks:[['charge','lob'], ['charge','lob','charge'], ['charge','spray','charge','lob']] },
+    { name:'FROST YETI',    w:80,  h:92, hp:8, base:'ground', shot:['#ffffff','#bfe4ff'],
+      attacks:[['icicle','shoot'], ['icicle','shoot','icicle'], ['icicle','spray','icicle','shoot']] },
+    { name:'MAGMA DRAKE',   w:104, h:70, hp:8, base:'air',    shot:['#ff5a00','#ffe060'],
+      attacks:[['spray','geyser'], ['geyser','spray','charge'], ['charge','geyser','spray','geyser']] },
+    { name:'STORM SERPENT', w:120, h:60, hp:9, base:'air',    shot:['#80e0ff','#ffffff'],
+      attacks:[['shoot','lightning'], ['lightning','charge','shoot'], ['lightning','spray','charge','lightning']] }
+];
+
+// Columns are dodged vertically: bottom columns by going high (or diving deep), top columns by staying low
+var COL_TYPES = {
+    tentacle:  { fromTop:false, len:130, depth:60, w:38 },
+    icicle:    { fromTop:true,  len:230, depth:0,  w:30 },
+    geyser:    { fromTop:false, len:150, depth:0,  w:42 },
+    lightning: { fromTop:true,  len:270, depth:0,  w:24 }
+};
+
+function bossTriggerPx(i) {
+    return i < 4 ? (BIOMES[i + 1].startDist - 150) * 10 : (BIOMES[4].startDist + 1300) * 10;
+}
+
+function checkBossTrigger() {
+    if (boss) return;
+    var i = currentBiomeIdx;
+    if (i < BOSS_DEFS.length && bossesBeaten.indexOf(i) === -1 && distancePx >= bossTriggerPx(i)) spawnBoss(i);
+}
+
+function spawnBoss(i) {
+    var d = BOSS_DEFS[i];
+    boss = { idx:i, def:d, x:W + 40, y:200, w:d.w, h:d.h, hp:d.hp, maxHp:d.hp,
+             state:'intro', timer:0, phase:0, attackIdx:0, hitFlash:0, invuln:0,
+             chargeY:0, featherTimer:0, bannerText:'', bannerTimer:0 };
+    boss.y = bossHomeY();
+    bossShots = []; bossCols = [];
+    sfxBossAlert();
+    startMusic(5);
+    shakeFrames = 20; shakeMagnitude = 4;
+}
+
+function bossHomeY() {
+    var fy = BIOMES[currentBiomeIdx].floorY;
+    if (boss.def.base === 'water')  return fy - boss.h + 26;
+    if (boss.def.base === 'ground') return fy - boss.h;
+    return 120 + Math.sin(frameCount * 0.03) * 30;
+}
+
+function bossSetState(s) {
+    boss.state = s;
+    boss.timer = 0;
+    if (s === 'dazed') { boss.bannerText = 'STOMP IT  or  BURST INTO IT!'; boss.bannerTimer = 100; }
+}
+
+function bossMoveToward(tx, ty, spd) {
+    boss.x += Math.max(-spd, Math.min(spd, (tx - boss.x) * 0.1));
+    boss.y += Math.max(-spd, Math.min(spd, (ty - boss.y) * 0.1));
+}
+
+function bossShoot(x, y, angle, spd) {
+    bossShots.push({ x:x, y:y, dx:Math.cos(angle) * spd, dy:Math.sin(angle) * spd, g:0, r:7, life:220 });
+}
+
+function bossSpawnColumn(type, offset) {
+    var ct   = COL_TYPES[type];
+    var warn = 55 - boss.phase * 8 + (offset ? 18 : 0);
+    var fy   = Math.min(BIOMES[currentBiomeIdx].floorY, H);
+    // Placed where the duck will be when the warning ends
+    bossCols.push({
+        type:type, w:ct.w, warn:warn, active:26,
+        worldX: duck.worldX + 16 - ct.w / 2 + duck.speed * warn + offset,
+        y0: ct.fromTop ? 0 : fy - ct.len,
+        y1: ct.fromTop ? ct.len : fy + ct.depth
+    });
+}
+
+function bossDoAttack() {
+    var b    = boss;
+    var list = b.def.attacks[b.phase];
+    if (b.attackIdx >= list.length) { b.attackIdx = 0; bossSetState('swoop'); return; }
+    var atk = list[b.attackIdx++];
+    var bx  = b.x + b.w * 0.2, by = b.y + b.h * 0.4;
+    var dcx = DUCK_SCREEN_X + 16, dcy = duck.y + 16;
+    var k;
+    switch (atk) {
+        case 'shoot':
+            var n = b.phase === 0 ? 1 : 3;
+            var a = Math.atan2(dcy - by, dcx - bx);
+            for (k = 0; k < n; k++) bossShoot(bx, by, a + (k - (n - 1) / 2) * 0.18, 4.5 + b.phase);
+            sfxBurst();
+            break;
+        case 'spray':
+            var cnt = 5 + b.phase * 2;
+            for (k = 0; k < cnt; k++) bossShoot(bx, by, Math.PI * 0.72 + Math.PI * 0.56 * k / (cnt - 1), 3.4 + b.phase * 0.4);
+            sfxBurst();
+            break;
+        case 'lob':
+            var ln = 2 + b.phase;
+            for (k = 0; k < ln; k++) {
+                var t = 55 + k * 12, g = 0.22;
+                var tx = dcx + (k - (ln - 1) / 2) * 45;
+                bossShots.push({ x:bx, y:by, dx:(tx - bx) / t, dy:(dcy - by - 0.5 * g * t * t) / t, g:g, r:8, life:240 });
+            }
+            sfxJump();
+            break;
+        case 'charge':
+            b.chargeY = Math.max(40, Math.min(duck.y + 16 - b.h / 2, Math.min(BIOMES[currentBiomeIdx].floorY, H) - b.h));
+            bossSetState('windup');
+            return;
+        default:
+            bossSpawnColumn(atk, 0);
+            if (b.phase === 2) bossSpawnColumn(atk, 110);
+            break;
+    }
+    bossSetState('idle');
+}
+
+function hitBoss() {
+    var b = boss;
+    b.hp--; b.invuln = 40; b.hitFlash = 16;
+    spawnExplosion(DUCK_SCREEN_X + 16, duck.y + duck.h);
+    shakeFrames = 8; shakeMagnitude = 5;
+    sfxKill();
+    if (activeUpgrades.indexOf('damage_return') !== -1) duck.burstCharges++;
+    if (b.hp <= 0) defeatBoss();
+}
+
+function defeatBoss() {
+    var b = boss;
+    for (var k = 0; k < 6; k++)
+        spawnExplosion(b.x + Math.random() * b.w, b.y + Math.random() * b.h);
+    shakeFrames = 30; shakeMagnitude = 9;
+    sfxUpgrade();
+    kills++; fish += 15;
+    duck.burstCharges++;
+    duck.hp = Math.min(duck.maxHp, duck.hp + 30);
+    bossesBeaten.push(b.idx);
+    toasts.push({ text:b.def.name + ' DEFEATED! +30 HP +1 BURST', timer:260 });
+    unlockAchievement('boss_1');
+    if (bossesBeaten.length >= BOSS_DEFS.length) unlockAchievement('boss_all');
+    boss = null; bossShots = []; bossCols = [];
+    startMusic(BIOMES[currentBiomeIdx].musicIdx);
+}
+
+function duckCanBeHit() {
+    return duck.alive && !isDying && duck.invincible === 0;
+}
+
+function updateBoss() {
+    if (!boss) return;
+    var b     = boss;
+    var biome = BIOMES[currentBiomeIdx];
+    b.timer++;
+    if (b.hitFlash > 0)    b.hitFlash--;
+    if (b.invuln > 0)      b.invuln--;
+    if (b.bannerTimer > 0) b.bannerTimer--;
+
+    var newPhase = b.hp > b.maxHp * 2 / 3 ? 0 : (b.hp > b.maxHp / 3 ? 1 : 2);
+    if (newPhase > b.phase) {
+        b.phase = newPhase; b.attackIdx = 0;
+        b.bannerText = 'ENRAGED!'; b.bannerTimer = 70;
+        shakeFrames = 14; shakeMagnitude = 5;
+        sfxBossAlert();
+    }
+    var rage  = 1 + b.phase * 0.3;
+    var homeX = W - 190, homeY = bossHomeY();
+
+    switch (b.state) {
+        case 'intro':
+            bossMoveToward(homeX, homeY, 4);
+            if (b.timer > 150) bossSetState('idle');
+            break;
+        case 'idle':
+            bossMoveToward(homeX, homeY, 3);
+            if (b.timer > 70 / rage) bossDoAttack();
+            break;
+        case 'windup':
+            b.x += Math.sin(b.timer * 1.3) * 2;
+            b.y += (b.chargeY - b.y) * 0.12;
+            if (b.timer > 45 - b.phase * 8) bossSetState('charging');
+            break;
+        case 'charging':
+            b.x -= 8 + b.phase * 2;
+            if (frameCount % 2 === 0)
+                spawnParticle(b.x + b.w, b.y + b.h / 2 + randBetween(-b.h / 3, b.h / 3), 2, randBetween(-1, 1), 16, '#ffffff', 4);
+            if (b.x < -b.w - 30) { b.x = W + 40; bossSetState('return'); }
+            break;
+        case 'return':
+            bossMoveToward(homeX, homeY, 6);
+            if ((Math.abs(b.x - homeX) < 6 && Math.abs(b.y - homeY) < 6) || b.timer > 180) bossSetState('idle');
+            break;
+        case 'swoop':
+            var tx = DUCK_SCREEN_X + 16 - b.w / 2;
+            var ty = Math.min(biome.floorY, 420) - 45;
+            bossMoveToward(tx, ty, 7);
+            if ((Math.abs(b.x - tx) < 6 && Math.abs(b.y - ty) < 6) || b.timer > 120) bossSetState('dazed');
+            break;
+        case 'dazed':
+            if (b.timer > 150) bossSetState('return');
+            break;
+    }
+
+    // Feather supply so the player can keep ramming
+    if (b.state !== 'intro') {
+        b.featherTimer++;
+        if (b.featherTimer >= 300 || (duck.burstCharges === 0 && b.featherTimer >= 150)) {
+            b.featherTimer = 0;
+            var wet = biome.floorType === 'water' || biome.floorType === 'swamp';
+            collectibles.push({ type:'feather', worldX:cameraX + W + 20,
+                y: wet ? biome.floorY - 26 : 230 + Math.random() * 60,
+                collected:false, bobOff:Math.random() * 6 });
+        }
+    }
+
+    // Projectiles
+    for (var i = bossShots.length - 1; i >= 0; i--) {
+        var s = bossShots[i];
+        s.x += s.dx; s.y += s.dy; s.dy += s.g; s.life--;
+        if (s.life <= 0 || s.x < -30 || s.x > W + 30 || s.y > H + 30 || s.y < -80) { bossShots.splice(i, 1); continue; }
+        if (duckCanBeHit() && s.x + s.r > DUCK_SCREEN_X + 5 && s.x - s.r < DUCK_SCREEN_X + duck.w - 5 &&
+            s.y + s.r > duck.y + 5 && s.y - s.r < duck.y + duck.h - 5) {
+            bossShots.splice(i, 1);
+            hurtDuck();
+        }
+    }
+
+    // Column hazards
+    for (var j = bossCols.length - 1; j >= 0; j--) {
+        var c = bossCols[j];
+        if (c.warn > 0) {
+            c.warn--;
+            if (c.warn === 0) { playTone(90, 'sawtooth', 0.12, 0.22); shakeFrames = Math.max(shakeFrames, 6); shakeMagnitude = Math.max(shakeMagnitude, 3); }
+            continue;
+        }
+        c.active--;
+        if (c.active <= 0) { bossCols.splice(j, 1); continue; }
+        var csx = c.worldX - cameraX;
+        if (c.type === 'geyser' && frameCount % 2 === 0)
+            spawnParticle(csx + Math.random() * c.w, c.y0, randBetween(-1.5, 1.5), -2 - Math.random() * 3, 22, Math.random() < 0.5 ? '#ffaa00' : '#ff5500', 4);
+        if (duckCanBeHit() && csx + c.w > DUCK_SCREEN_X + 6 && csx < DUCK_SCREEN_X + duck.w - 6 &&
+            duck.y + duck.h - 4 > c.y0 && duck.y + 4 < c.y1) hurtDuck();
+    }
+
+    // Body contact: stomp from above or burst-ram damages the boss
+    if (duck.alive && !isDying) {
+        var ox = DUCK_SCREEN_X + duck.w - 4 > b.x + 6 && DUCK_SCREEN_X + 4 < b.x + b.w - 6;
+        var oy = duck.y + duck.h - 2 > b.y + 4 && duck.y + 2 < b.y + b.h - 4;
+        if (ox && oy) {
+            var stomp = duck.dy > 0 && duck.y + duck.h - duck.dy <= b.y + 14;
+            var ram   = duck.dy < -7;
+            if ((stomp || ram) && b.invuln === 0 && b.state !== 'intro') {
+                if (stomp) { duck.dy = -9; duck.state = 'air'; }
+                else duck.invincible = Math.max(duck.invincible, 30);
+                hitBoss();
+            } else if (!stomp && (b.state === 'idle' || b.state === 'windup' || b.state === 'charging')) {
+                hurtDuck();
+            }
+        }
+    }
+}
+
+// ==================== BOSS DRAWING ====================
+function bossCol(c) {
+    return (boss.hitFlash > 0 && Math.floor(boss.hitFlash / 2) % 2 === 0) ? '#ffffff' : c;
+}
+
+function drawBossColumns() {
+    for (var i = 0; i < bossCols.length; i++) {
+        var c   = bossCols[i];
+        var csx = c.worldX - cameraX;
+        var fromTop = COL_TYPES[c.type].fromTop;
+        if (csx + c.w < -10 || csx > W + 10) continue;
+        if (c.warn > 0) {
+            ctx.fillStyle = 'rgba(255,40,40,' + (Math.floor(c.warn / 5) % 2 === 0 ? 0.30 : 0.12) + ')';
+            ctx.fillRect(csx, c.y0, c.w, c.y1 - c.y0);
+            ctx.strokeStyle = 'rgba(255,90,90,0.85)';
+            ctx.setLineDash([6, 4]);
+            ctx.strokeRect(csx + 0.5, c.y0 + 0.5, c.w - 1, c.y1 - c.y0 - 1);
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#ff5050';
+            ctx.font = 'bold 20px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('!', csx + c.w / 2, fromTop ? c.y1 + 22 : c.y0 - 8);
+            ctx.textAlign = 'left';
+            continue;
+        }
+        var grow = Math.min(1, (27 - c.active) / 6);
+        var len  = (c.y1 - c.y0) * grow;
+        var top  = fromTop ? c.y0 : c.y1 - len;
+        var bot  = fromTop ? c.y0 + len : c.y1;
+        var yy;
+        if (c.type === 'tentacle') {
+            for (yy = top; yy < bot; yy += 10) {
+                var xo = Math.sin(yy * 0.08 + frameCount * 0.3) * 4;
+                ctx.fillStyle = '#9b4fc0';
+                ctx.fillRect(csx + 4 + xo, yy, c.w - 8, 11);
+                ctx.fillStyle = '#e8a0e8';
+                ctx.fillRect(csx + 6 + xo, yy + 3, 5, 5);
+            }
+            ctx.fillStyle = '#b060d8';
+            ctx.fillRect(csx + 10, top - 6, c.w - 20, 8);
+        } else if (c.type === 'icicle') {
+            ctx.fillStyle = '#cfeeff';
+            ctx.fillRect(csx + 4, top, c.w - 8, Math.max(0, len - 20));
+            ctx.beginPath();
+            ctx.moveTo(csx + 4, bot - 20); ctx.lineTo(csx + c.w - 4, bot - 20); ctx.lineTo(csx + c.w / 2, bot);
+            ctx.closePath(); ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.8)';
+            ctx.fillRect(csx + 8, top, 4, Math.max(0, len - 24));
+        } else if (c.type === 'geyser') {
+            ctx.fillStyle = '#ff5a00';
+            ctx.fillRect(csx, top, c.w, len);
+            ctx.fillStyle = '#ffd040';
+            ctx.fillRect(csx + c.w * 0.3, top, c.w * 0.4, len);
+            ctx.fillStyle = '#ff8a00';
+            ctx.fillRect(csx - 6, top - 8, c.w + 12, 12);
+        } else if (c.type === 'lightning') {
+            ctx.fillStyle = 'rgba(255,250,180,0.25)';
+            ctx.fillRect(csx - 8, top, c.w + 16, len);
+            ctx.beginPath();
+            var lx = csx + c.w / 2;
+            ctx.moveTo(lx, top);
+            for (yy = top + 18; yy < bot; yy += 18) ctx.lineTo(csx + Math.random() * c.w, yy);
+            ctx.lineTo(lx, bot);
+            ctx.strokeStyle = '#fff27a'; ctx.lineWidth = 6; ctx.stroke();
+            ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
+            ctx.lineWidth = 1;
+        }
+    }
+}
+
+function drawBossShots() {
+    if (!boss) return;
+    var cols = boss.def.shot;
+    for (var i = 0; i < bossShots.length; i++) {
+        var s = bossShots[i];
+        ctx.fillStyle = cols[0];
+        ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = cols[1];
+        ctx.beginPath(); ctx.arc(s.x - 2, s.y - 2, s.r * 0.45, 0, Math.PI * 2); ctx.fill();
+    }
+}
+
+function drawBoss() {
+    if (!boss) return;
+    var b = boss, x = b.x, y = b.y;
+    var angry = b.state === 'windup' || b.state === 'charging' || b.phase === 2;
+    var eyeCol = angry ? '#ff2020' : '#ffff40';
+    var t, s;
+    switch (b.idx) {
+        case 0: // King Kraken
+            for (t = 0; t < 6; t++) {
+                for (s = 0; s < 5; s++) {
+                    var kxo = Math.sin(frameCount * 0.15 + t + s * 0.6) * 4;
+                    ctx.fillStyle = bossCol(s % 2 ? '#7a3a98' : '#8a46aa');
+                    ctx.fillRect(x + 8 + t * 14 + kxo, y + 52 + s * 7, 11 - s, 8);
+                }
+            }
+            ctx.fillStyle = bossCol('#9b4fc0');
+            ctx.beginPath(); ctx.ellipse(x + 48, y + 34, 46, 32, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = bossCol('#7a3a98');
+            ctx.beginPath(); ctx.arc(x + 28, y + 14, 6, 0, Math.PI * 2); ctx.arc(x + 64, y + 10, 8, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath(); ctx.arc(x + 32, y + 38, 10, 0, Math.PI * 2); ctx.arc(x + 62, y + 38, 10, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = angry ? '#cc0000' : '#000000';
+            ctx.fillRect(x + 26, y + 35, 6, 6); ctx.fillRect(x + 56, y + 35, 6, 6);
+            ctx.fillStyle = '#3a1050';
+            ctx.fillRect(x + 20, y + 24, 22, 4); ctx.fillRect(x + 52, y + 24, 22, 4);
+            break;
+        case 1: // Bog Tyrant
+            var jaw = (b.state === 'windup' || b.state === 'charging') ? 8 : 2;
+            ctx.fillStyle = bossCol('#2f6b3a');
+            ctx.fillRect(x + 22, y + 16, 90, 34);
+            ctx.fillRect(x + 100, y + 26, 12, 14);
+            ctx.fillStyle = bossCol('#3a7d44');
+            ctx.fillRect(x, y + 24, 40, 12);
+            ctx.fillRect(x + 2, y + 36 + jaw, 38, 8);
+            ctx.fillStyle = '#ffffff';
+            for (t = 0; t < 5; t++) { ctx.fillRect(x + 4 + t * 7, y + 36, 3, 4); ctx.fillRect(x + 6 + t * 7, y + 32 + jaw, 3, 4); }
+            ctx.fillStyle = bossCol('#245530');
+            for (t = 0; t < 5; t++) ctx.fillRect(x + 42 + t * 13, y + 10, 9, 8);
+            ctx.fillStyle = eyeCol;
+            ctx.fillRect(x + 34, y + 16, 7, 7);
+            ctx.fillStyle = '#000'; ctx.fillRect(x + 35, y + 18, 3, 3);
+            ctx.fillStyle = '#ffd700';
+            ctx.fillRect(x + 50, y + 4, 26, 7);
+            ctx.fillRect(x + 50, y - 2, 5, 6); ctx.fillRect(x + 60, y - 4, 6, 8); ctx.fillRect(x + 71, y - 2, 5, 6);
+            ctx.fillStyle = '#e03030'; ctx.fillRect(x + 61, y + 5, 4, 4);
+            break;
+        case 2: // Frost Yeti
+            var arm = b.state === 'idle' && b.timer < 20 ? -14 : 0;
+            ctx.fillStyle = bossCol('#eef4ff');
+            ctx.fillRect(x + 10, y + 26, 60, 54);
+            ctx.fillRect(x + 18, y + 4, 44, 32);
+            ctx.fillRect(x - 2, y + 30 + arm, 14, 36);
+            ctx.fillRect(x + 68, y + 30, 14, 36);
+            ctx.fillRect(x + 14, y + 78, 18, 14); ctx.fillRect(x + 48, y + 78, 18, 14);
+            ctx.fillStyle = bossCol('#cdd8ee');
+            for (t = 0; t < 4; t++) ctx.fillRect(x + 14 + t * 14, y + 40 + (t % 2) * 10, 8, 4);
+            ctx.fillStyle = bossCol('#7fb0e0');
+            ctx.fillRect(x + 24, y + 14, 32, 18);
+            ctx.fillStyle = eyeCol;
+            ctx.fillRect(x + 28, y + 17, 6, 5); ctx.fillRect(x + 44, y + 17, 6, 5);
+            ctx.fillStyle = '#1a2a4a'; ctx.fillRect(x + 30, y + 25, 20, 5);
+            ctx.fillStyle = '#ffffff'; ctx.fillRect(x + 32, y + 25, 3, 4); ctx.fillRect(x + 45, y + 25, 3, 4);
+            ctx.fillStyle = '#c8b080'; ctx.fillRect(x + 16, y, 6, 10); ctx.fillRect(x + 58, y, 6, 10);
+            break;
+        case 3: // Magma Drake
+            var wing = Math.sin(frameCount * 0.2) * 12;
+            ctx.fillStyle = bossCol('#7a1a0a');
+            ctx.beginPath(); ctx.moveTo(x + 40, y + 24); ctx.lineTo(x + 66, y - 10 + wing); ctx.lineTo(x + 86, y + 24); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = bossCol('#b8321e');
+            ctx.beginPath(); ctx.ellipse(x + 62, y + 40, 38, 22, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillRect(x + 92, y + 36, 14, 8);
+            ctx.fillStyle = bossCol('#ffb040');
+            ctx.beginPath(); ctx.ellipse(x + 60, y + 48, 24, 10, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = bossCol('#c83a22');
+            ctx.fillRect(x, y + 18, 34, 22);
+            ctx.fillStyle = '#3a1a0a';
+            ctx.fillRect(x + 20, y + 10, 5, 10); ctx.fillRect(x + 28, y + 8, 5, 12);
+            ctx.fillStyle = eyeCol; ctx.fillRect(x + 10, y + 22, 6, 5);
+            ctx.fillStyle = angry ? '#ffe060' : '#5a1008'; ctx.fillRect(x, y + 32, 16, 4);
+            ctx.fillStyle = bossCol('#8a2010');
+            ctx.fillRect(x + 50, y + 58, 8, 10); ctx.fillRect(x + 72, y + 58, 8, 10);
+            break;
+        case 4: // Storm Serpent
+            for (s = 7; s >= 0; s--) {
+                var sx2 = x + b.w - 12 - s * 13;
+                var sy2 = y + 30 + Math.sin(frameCount * 0.12 + s * 0.7) * 14;
+                ctx.fillStyle = bossCol(s % 2 ? '#4a3aa8' : '#6a5ad0');
+                ctx.beginPath(); ctx.arc(sx2, sy2, 13 - (7 - s) * 0.6, 0, Math.PI * 2); ctx.fill();
+            }
+            var hy = y + 30 + Math.sin(frameCount * 0.12 + 7 * 0.7) * 14;
+            ctx.fillStyle = bossCol('#7a6ae0');
+            ctx.fillRect(x, hy - 12, 26, 22);
+            ctx.fillStyle = eyeCol; ctx.fillRect(x + 6, hy - 6, 5, 5);
+            ctx.fillStyle = '#ffffff'; ctx.fillRect(x, hy + 4, 12, 3);
+            if (frameCount % 9 < 3) {
+                ctx.strokeStyle = '#fff27a'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(x + 40, y - 4); ctx.lineTo(x + 46, y + 4); ctx.lineTo(x + 42, y + 8); ctx.lineTo(x + 50, y + 16); ctx.stroke();
+                ctx.lineWidth = 1;
+            }
+            break;
+    }
+
+    // Submerged look for water bosses
+    var biome = BIOMES[currentBiomeIdx];
+    if (b.def.base === 'water' && y + b.h > biome.floorY) {
+        ctx.fillStyle = biome.waterColor;
+        ctx.fillRect(x - 6, biome.floorY, b.w + 12, y + b.h - biome.floorY + 4);
+    }
+
+    // Dazed: orbiting stars and a target arrow
+    if (b.state === 'dazed') {
+        ctx.fillStyle = '#ffe066';
+        for (t = 0; t < 3; t++) {
+            var ang = frameCount * 0.12 + t * Math.PI * 2 / 3;
+            ctx.fillRect(x + b.w / 2 + Math.cos(ang) * (b.w / 2) - 3, y - 8 + Math.sin(ang) * 6 - 3, 6, 6);
+        }
+        var ay = y - 30 + Math.sin(frameCount * 0.25) * 5;
+        ctx.beginPath();
+        ctx.moveTo(x + b.w / 2 - 10, ay); ctx.lineTo(x + b.w / 2 + 10, ay); ctx.lineTo(x + b.w / 2, ay + 12);
+        ctx.closePath(); ctx.fill();
+    }
+}
+
+function drawBossUI() {
+    if (!boss) return;
+    var b  = boss;
+    var bw = 320, bx = (W - bw) / 2, by = 84;
+    ctx.textAlign = 'center';
+
+    if (b.state === 'intro') {
+        ctx.fillStyle = 'rgba(255,0,0,' + (0.08 + 0.06 * Math.sin(b.timer * 0.3)) + ')';
+        ctx.fillRect(0, 0, W, H);
+        if (Math.floor(b.timer / 10) % 2 === 0) {
+            ctx.font = 'bold 56px Courier New';
+            ctx.fillStyle = '#400000'; ctx.fillText('WARNING', W / 2 + 3, 193);
+            ctx.fillStyle = '#ff3030'; ctx.fillText('WARNING', W / 2, 190);
+        }
+        ctx.font = 'bold 22px Courier New';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(b.def.name + ' APPROACHES', W / 2, 228);
+    }
+
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(bx - 6, by - 17, bw + 12, 32);
+    ctx.font = 'bold 11px Courier New';
+    ctx.fillStyle = '#ff9090';
+    ctx.fillText(b.def.name, W / 2, by - 5);
+    ctx.fillStyle = '#331111';
+    ctx.fillRect(bx, by, bw, 9);
+    ctx.fillStyle = b.phase === 2 ? '#ff2a2a' : b.phase === 1 ? '#ff8a30' : '#e04848';
+    ctx.fillRect(bx, by, bw * Math.max(0, b.hp / b.maxHp), 9);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(bx + bw / 3, by, 2, 9);
+    ctx.fillRect(bx + bw * 2 / 3, by, 2, 9);
+    ctx.strokeStyle = '#ffffff';
+    ctx.strokeRect(bx + 0.5, by + 0.5, bw - 1, 8);
+
+    if (b.bannerTimer > 0) {
+        ctx.globalAlpha = Math.min(1, b.bannerTimer / 20);
+        ctx.font = 'bold 24px Courier New';
+        ctx.fillStyle = '#000000'; ctx.fillText(b.bannerText, W / 2 + 2, 152);
+        ctx.fillStyle = '#ffe066'; ctx.fillText(b.bannerText, W / 2, 150);
+        ctx.globalAlpha = 1;
+    }
+    ctx.textAlign = 'left';
 }
 
 // ==================== COLLECTIBLE UPDATE ====================
@@ -1533,6 +2063,7 @@ function updatePhysics() {
 
     // ── Systems ──
     checkBiomeTransition();
+    checkBossTrigger();
     if (distancePx - lastUpgradePx >= UPGRADE_EVERY_PX) {
         lastUpgradePx += UPGRADE_EVERY_PX;
         triggerUpgrade();
@@ -1568,6 +2099,7 @@ function updateHUD() {
 
 // ==================== BIOME TRANSITION ====================
 function checkBiomeTransition() {
+    if (boss) return; // the boss guards the way to the next biome
     var newIdx = 0;
     for (var i = BIOMES.length - 1; i >= 0; i--) {
         if (distancePx >= BIOMES[i].startDist * 10) { newIdx = i; break; }
@@ -1608,6 +2140,7 @@ function startRun() {
     activeUpgrades = []; noHitRun = true;
     toasts = []; shakeFrames = 0; shakeMagnitude = 0;
     hpRegenTimer = 0; isDying = false;
+    boss = null; bossShots = []; bossCols = []; bossesBeaten = [];
     runStartTime = Date.now(); frameCount = 0;
 
     // Reset world
@@ -1940,12 +2473,13 @@ function drawDeathScreen() {
         ['BIOME',       BIOMES[currentBiomeIdx].name],
         ['KILLS',       kills + ''],
         ['FISH',        fish  + ''],
-        ['UPGRADES',    activeUpgrades.length + '']
+        ['UPGRADES',    activeUpgrades.length + ''],
+        ['BOSSES',      bossesBeaten.length + ' / ' + BOSS_DEFS.length]
     ];
 
     ctx.font = '14px Courier New';
     for (var ri = 0; ri < rows.length; ri++) {
-        var ry = py + 32 + ri * 36;
+        var ry = py + 32 + ri * 30;
         ctx.fillStyle = '#777788';
         ctx.textAlign = 'left';
         ctx.fillText(rows[ri][0], px + 22, ry);
@@ -1995,9 +2529,10 @@ function drawToasts() {
         if (t.timer <= 0) { toasts.splice(i, 1); continue; }
 
         var alpha = Math.min(1, t.timer / 35);
+        ctx.font  = 'bold 12px Courier New';
         var tw    = ctx.measureText(t.text).width + 22;
         var tx    = W - tw - 10;
-        var ty    = 52 + i * 34;
+        var ty    = (boss ? 110 : 52) + i * 34;
 
         ctx.globalAlpha = alpha;
         ctx.fillStyle   = 'rgba(15,15,35,0.92)';
@@ -2148,6 +2683,7 @@ function loop() {
             updatePhysics();
             updateEnemies();
             updateCollectibles();
+            updateBoss();
         }
         updateParticles();
 
@@ -2158,8 +2694,12 @@ function loop() {
         drawPlatforms();
         drawCollectibles();
         drawEnemies();
+        drawBossColumns();
+        drawBoss();
+        drawBossShots();
         drawDuck(DUCK_SCREEN_X, duck.y, duck.animFrame, duck.invincible, duck.shield);
         drawParticles();
+        drawBossUI();
         drawToasts();
 
         if (gameState === 'UPGRADE') drawUpgradeScreen();
@@ -2170,6 +2710,7 @@ function loop() {
         drawEnvironmentFloor();
         drawPlatforms();
         drawEnemies();
+        drawBoss();
         ctx.fillStyle = 'rgba(0,0,0,0.62)';
         ctx.fillRect(0, 0, W, H);
         drawDeathScreen();
