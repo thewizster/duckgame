@@ -340,6 +340,8 @@ const DROWN_INTERVAL    = 30;
 const DROWN_DAMAGE      = 8;
 const DIVE_FORCE        = 0.3;
 const BUOYANCY          = 0.03;
+const LAVA_DAMAGE       = 30;
+const LAVA_BOUNCE       = -13;
 const UPGRADE_EVERY_PX  = 6000;
 const CULL_BEHIND       = 400;
 const GEN_AHEAD         = 950;
@@ -2196,7 +2198,16 @@ function updatePhysics() {
     // ── Floor collision ──
     if (!landed) {
         if (b.floorType === 'lava' && duck.y + duck.h >= b.floorY) {
-            duck.hp = 0; duck.alive = false;
+            // Lava burns and throws the duck back up; the bounce happens even while invincible
+            duck.y = b.floorY - duck.h;
+            duck.dy = LAVA_BOUNCE;
+            duck.state = 'air'; duck.airJumps = 0;
+            for (var lk = 0; lk < 14; lk++)
+                spawnParticle(DUCK_SCREEN_X + 16 + randBetween(-14, 14), b.floorY, randBetween(-2.5, 2.5), -2 - Math.random() * 4,
+                    24 + Math.random() * 16, Math.random() < 0.5 ? '#ff6a00' : '#ffd040', 3 + Math.random() * 2);
+            playTone(180, 'sawtooth', 0.10, 0.18);
+            playTone(90, 'square', 0.08, 0.22);
+            hurtDuck(LAVA_DAMAGE + lap * 5);
         } else if (b.floorType === 'ice' && duck.y + duck.h >= b.floorY) {
             duck.y = b.floorY - duck.h; duck.dy = 0;
             duck.state = 'ground'; duck.airJumps = 0;
@@ -2369,6 +2380,18 @@ function checkBiomeTransition() {
         if (map[newIdx]) unlockAchievement(map[newIdx]);
         toasts.push({ text:'Entering: ' + BIOMES[newIdx].name, timer:200 });
         nextEnemyX = duck.worldX + 500; // brief safe zone after transition
+
+        // Dangerous floors get a wide ledge under the duck so the switch itself can't kill
+        var nb = BIOMES[newIdx];
+        if (nb.floorType === 'lava' || nb.floorType === 'void') {
+            var ledgeY = Math.min(duck.y + duck.h, nb.floorType === 'lava' ? nb.floorY - 40 : 380);
+            platforms.push({ worldX:duck.worldX - 80, y:ledgeY, w:640, h:14 });
+            if (duck.y + duck.h > ledgeY) {
+                duck.y = ledgeY - duck.h; duck.dy = 0;
+                duck.state = 'ground'; duck.airJumps = 0;
+            }
+        }
+        if (nb.floorType === 'lava') toasts.push({ text:"LAVA BURNS! IT BOUNCES YOU UP - DON'T LINGER", timer:300 });
     }
 }
 
