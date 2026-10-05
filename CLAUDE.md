@@ -1,204 +1,166 @@
-# CLAUDE.md — 8-Bit Duck Survival
+# CLAUDE.md — Duck Games
 
 This file documents the codebase structure, conventions, and development workflow for AI assistants contributing to this project.
 
 ## Project Overview
 
-**8-Bit Duck Survival** is a retro-style browser game where a duck must navigate water and land while evading sharks and gators, surviving across increasingly difficult levels.
+This repo hosts two single-file browser games starring the same pixel duck, plus a hub page to pick one:
+
+- `index.html`: game-select hub (static page linking to both games)
+- `duckrunendless.html`: **Duck Run: Endless**, documented in detail below
+- `duckster.html`: **Duckster: Road Rage**, a separate go-kart racing roguelite with the same single-file approach (its own code, not covered here)
+
+Each game page ends with a fixed "← choose a game" link back to the hub.
+
+**Duck Run: Endless** is an infinite side-scrolling roguelite runner. The duck auto-runs right through five procedurally generated biomes, each ending in a boss fight; after the last boss the world loops back with higher difficulty. Upgrades, achievements, and unlockable starting ducks give runs depth and replay value.
+
+The project is a showcase of what an AI-built, single-file, fully offline browser game can be.
 
 - **Tech stack**: Pure HTML5 Canvas + vanilla JavaScript + CSS, Web Audio API
-- **Architecture**: Single-file application (`index.html`) — all HTML, CSS, and JavaScript in one file
-- **Dependencies**: None — no npm, no build tools, no external libraries
+- **Architecture**: Each game is a single file (`duckrunendless.html` is ~3,200 lines): all HTML, CSS, and JavaScript in one file
+- **Dependencies**: None — no npm, no build tools, no external libraries, no network requests
 - **Deployment**: GitHub Pages at https://thewizster.github.io/duckgame/
-- **To play**: Open `index.html` in any modern browser — no server needed
+- **To play**: Open `index.html` (hub) or `duckrunendless.html` directly in any modern browser — no server needed
 
 ## Repository Structure
 
 ```
 duckgame/
-├── index.html       # The entire game (HTML + CSS + JS, ~821 lines)
-├── duckgame.jpg     # Reference sketch used during initial development
-├── README.md        # Player-facing documentation
-└── CLAUDE.md        # This file
+├── index.html            # Game-select hub
+├── duckrunendless.html   # Duck Run: Endless (HTML + CSS + JS)
+├── duckster.html         # Duckster: Road Rage (HTML + CSS + JS)
+├── duckgame.jpg          # Reference sketch used during initial development
+├── README.md             # Player-facing documentation for both games
+├── CLAUDE.md             # This file
+└── .gitignore            # Ignores .claude/
 ```
 
 There are no configuration files, build scripts, test suites, CI/CD pipelines, or dependency manifests.
 
 ## Development Workflow
 
-### Running the game
+1. Edit `duckrunendless.html` directly — it is the single source of truth for Duck Run
+2. Refresh the browser tab to see changes
+3. Verify (see below), then commit and push
+
+### Verifying changes
+
+There is no test suite. Useful checks:
 
 ```bash
-# Open directly in a browser — no build or server required
-open index.html           # macOS
-xdg-open index.html       # Linux
-start index.html          # Windows
+# JS syntax check
+node -e "const h=require('fs').readFileSync('duckrunendless.html','utf8');new Function(h.match(/<script>([\s\S]*)<\/script>/)[1]);console.log('ok')"
 ```
 
-### Making changes
+For behavioural checks, drive the game headlessly with Playwright (Chromium is pre-installed in cloud sessions; the module lives at `/opt/node-tools/node_modules/playwright`). Global `let`/`var`/`function` names are reachable via `page.evaluate('...')`, so tests can jump straight to a state, e.g. `duck.worldX = 200 + bossTriggerPx(2) + 10` to summon the Frost Yeti, or `while (boss) { boss.invuln = 0; hitBoss(); }` to finish a boss. Always collect `pageerror` events and finish by playing the game manually.
 
-1. Edit `index.html` directly — it is the single source of truth
-2. Refresh the browser tab to see changes
-3. Test manually by playing the game
-4. Commit and push
-
-### No build, lint, or test commands exist
-
-There is no test suite. Quality assurance is done by manually playing the game after changes.
+**Very large single edits have timed out in the past** — make changes in several focused edits rather than rewriting the whole file at once.
 
 ## Code Architecture
 
-`index.html` is divided into three top-level sections: `<style>`, `<div>` (HTML UI), and `<script>`. All game logic is inside `<script>`. The script is structured top-to-bottom as follows:
+In `duckrunendless.html`, everything lives in one `<script>` block, organised into sections marked `// ==================== NAME ====================`. In order:
 
-| Lines (approx.) | Section | Description |
-|-----------------|---------|-------------|
-| 1–99            | HTML + CSS | Canvas container, HP bar, level display, burst charges UI |
-| 100–244         | Audio Engine | `noteFreqs`, `playTone()`, `sfxJump/Burst/Die/Win()`, `startBackgroundMusic()` |
-| 247–305         | Game State & Constants | Global state variables, physics constants, `duck` object, `enemy` object |
-| 259–287         | High Score System | `loadHighScores()`, `saveHighScores()`, `isTopScore()`, `addHighScore()` |
-| 307–352         | Enemy Initialization | Shark and gator setup with level-based speed scaling |
-| 354–415         | Rendering Utilities | `drawPixelDuck()`, `drawPixelShark()`, `drawPixelGator()` |
-| 417–528         | Physics & Collision | `updatePhysics()` — gravity, zone detection, AABB collision, HP logic |
-| 530–734         | Draw Functions | `draw()` — background, water, platforms, sprites, HUD, state screens |
-| 736–762         | Level & Game Management | `initLevel()`, `gameOver()`, win/loss transitions |
-| 764–804         | Input Handling | `keydown` event listener, keyboard controls, mouse click |
-| 806–817         | Game Loop | `loop()` via `requestAnimationFrame` |
-| 819–821         | Bootstrap | `loadHighScores()` → `initLevel()` → `loop()` |
+| Section | Contents |
+|---|---|
+| CANVAS SETUP / AUDIO ENGINE | `playTone()`, note table `N`, `BIOME_MUSIC` (index 5 = boss theme), `startMusic()/stopMusic()`, `sfx*()` functions |
+| CONSTANTS | Physics (`GRAVITY`, `JUMP_POWER`, `BURST_POWER`, `SWIM_POWER`), speeds, `HIT_DAMAGE`, floor heights, `UPGRADE_EVERY_PX`, generation distances |
+| BIOME / UPGRADE / ACHIEVEMENT DEFINITIONS | `BIOMES`, `UPGRADE_DEFS`, `ACHIEVEMENT_DEFS` data tables |
+| UPGRADE ICONS | `ICON_PALETTE`, `ICON_ART` (8×8 pixel maps), `drawPixelIcon()`, `ICON_URLS` (pre-rendered data URLs for the HTML HUD) |
+| STARTING ABILITY POOL | `ABILITY_POOL` (each entry has `unlock`: achievement id or null), `unlockedAbilities()`, `abilityUnlockedBy()` |
+| META-PROGRESSION | `loadMeta()`, `saveMeta()`, `hasAchievement()`, `unlockAchievement()` (localStorage key `duckrun_meta`) |
+| GAME STATE / UTILITY | Global state, the `duck` object, world arrays, helpers (`shuffleArray`, `wrapText`, `distMeters`, `biomeLabel`) |
+| PARTICLE SYSTEM | `spawnParticle()` + effect helpers, ambient biome particles |
+| BACKGROUND RENDERING | Per-biome parallax skies, `drawEnvironmentFloor()` (water/lava/ice/void) |
+| PLATFORM GENERATION & DRAWING | `generatePlatforms()`, `cullPlatforms()`, `drawPlatforms()` |
+| SPRITE DRAWING | `drawDuck()`, `_draw<Enemy>()` per enemy type, `drawEnemies()` |
+| COLLECTIBLES | Generation, drawing, pickup/magnet logic (fish, hearts, feathers) |
+| ENEMY SPAWNING / UPDATE | `spawnEnemies()` (scaled by lap), `updateEnemies()` (AI + collision), `hurtDuck(amount, drowning)` — the single place damage is applied (`drowning` bypasses shield/invincibility and knockback) |
+| DUCK WATER FX | `drawDuckWaterFX()` — underwater tint and the air-bubble meter above the duck |
+| BOSS SYSTEM / BOSS DRAWING | `BOSS_DEFS`, `COL_TYPES`, `checkBossTrigger()`, `spawnBoss()`, `updateBoss()` state machine, `hitBoss()`, `defeatBoss()`, `drawBoss*()` |
+| PHYSICS | `updatePhysics()` — movement, gravity/buoyancy/diving, platforms, floors, breath and drowning, surface regen, Phoenix rebirth, death, triggers |
+| HUD / BIOME TRANSITION / ACHIEVEMENTS | `updateHUD()` (HTML overlay), `checkBiomeTransition()`, `checkAchievements()` |
+| RUN MANAGEMENT | `startRun()` (resets all run state), `gameOver()` |
+| UPGRADE / ABILITY SELECTION, INPUT ACTIONS | `triggerUpgrade()`, `applyUpgrade()`, `selectAbility()`, `doJump()`, `doBurst()` |
+| DRAW: screens | Title, ability pick, upgrade, death, toasts, pause overlay, achievements screen |
+| UI BUTTONS | `drawButton()` registers clickable rects in `uiButtons` (rebuilt each frame) |
+| STATE CHANGES | `openAchievements()`, `pauseGame()`, `resumeGame()`, `quitToTitle()` |
+| INPUT | Keyboard, canvas click (buttons are hit-tested first), touch buttons |
+| FIT TO SCREEN | `fitToScreen()` scales the whole 806×506 game container to the window (max 1.5×), leaving room for the hub link |
+| GAME LOOP / BOOTSTRAP | `loop()` — per-state update + draw via `requestAnimationFrame` |
 
-### Key objects and variables
+### State machine
 
-```javascript
-// Game state machine
-gameState  // "START" | "PLAYING" | "WIN" | "ENTER_INITIALS" | "GAMEOVER"
-level      // Current level number (starts at 1)
-hp         // Player HP (0–100), persists across levels
-maxHp      // Always 100
-burstCharges  // Remaining burst uses, +1 per level completed
-frameCount    // Increments every frame (~60/sec), used for timers
-
-// Player
-duck = { x, y, w:32, h:32, dy, dx:1.5, gravity:0.5, swimPower:-6, burstPower:-14, state }
-// duck.state: 'ground' | 'water' | 'air'
-
-// Enemies
-enemy = { shark: { x, y, w, h, speed, dir }, gator: { x, y, w, h, speed, dir, canJump, jumpTimer } }
+```
+TITLE ──any key──▶ ABILITY_PICK ──1/2/3──▶ PLAYING ⇄ UPGRADE (every 600m)
+  │                                           ⇅ ESC/P
+  └─A─▶ ACHIEVEMENTS ◀─A─ DEAD ◀──death──   PAUSED ──Q──▶ TITLE
 ```
 
-### Canvas coordinate system
+`ACHIEVEMENTS` returns to whichever screen opened it (`achReturnState`).
 
-- Canvas size: 800×500 px
-- Water zone: Y 150–650 px horizontally, water surface at Y ≈ 370 px
-- Left land: X 0–150 px
-- Right land (win zone): X 650–800 px
-- Win condition: duck reaches X > 670
+### World and coordinates
 
-## Coding Conventions
+- Canvas: 800×500. The duck is always drawn at screen X = `DUCK_SCREEN_X` (150).
+- World objects (platforms, enemies, collectibles, boss column hazards) store `worldX`; screen X = `worldX - cameraX`, with `cameraX = duck.worldX - 150`.
+- The boss and its projectiles live in **screen space** (`boss.x`, `bossShots[].x`).
+- `distancePx` is world pixels travelled; metres = `distancePx / 10`. `BIOMES[].startDist` is in metres.
+- Biome and boss positions are measured from `lapStartPx`, so they repeat each lap.
 
-### Naming
+### Key objects
 
-| Type | Convention | Example |
-|------|-----------|---------|
-| Variables | camelCase | `gameState`, `waterTime`, `burstCharges` |
-| Constants | SCREAMING_SNAKE_CASE | `HP_GAIN_INTERVAL`, `COLLISION_DAMAGE` |
-| Functions | camelCase verbs | `updatePhysics()`, `drawPixelDuck()`, `initLevel()` |
-| Objects | lowercase nouns | `duck`, `enemy` |
-| Classes | N/A — none used | — |
+```javascript
+duck = { worldX, y, w:32, h:32, dy, speed, state /* 'air'|'ground'|'water' */, hp, maxHp,
+         burstCharges, invincible, shield, airJumps, maxAirJumps, swiftMode, phoenix, alive,
+         breath, maxBreath, drownTimer, wasSubmerged }
+boss = { idx, def, x, y, w, h, hp, maxHp, phase /* 0-2 */, state, timer, attackIdx, invuln, hitFlash }
+// boss.state: intro → idle → (attack) → idle ... → swoop → dazed → return → idle; charges use windup → charging → return
+meta = { bestDistance, totalRuns, achievements: [ids], diveHint }   // persisted
+```
 
-### Style
-
-- **Indentation**: 4 spaces
-- **Quotes**: Single quotes in JavaScript, double quotes in HTML attributes
-- **Semicolons**: Used inconsistently — follow surrounding code
-- **Programming style**: Imperative, procedural — direct state mutation, no functional patterns, no classes or modules
-- **Comments**: Sparse; only add comments for non-obvious logic
-
-### Anti-patterns to avoid
-
-- Do not introduce external dependencies or a build system
-- Do not split into multiple files — keep everything in `index.html`
-- Do not add a framework (React, Vue, etc.)
-- Do not add TypeScript or a transpiler
-- Do not add automated tests (there is no test runner)
+Run state (reset in `startRun()`): `fish`, `kills`, `distancePx`, `currentBiomeIdx`, `activeUpgrades`, `lap`, `lapStartPx`, `lapBosses`, `bossesBeaten`, `phoenixUsed`, world arrays.
 
 ## Game Mechanics Reference
 
-### Physics constants
+- **Movement**: auto-run, speed rises from `BASE_SPEED` (2.5) to `MAX_SPEED` (6). SPACE jumps (ground) or swims (water); SHIFT bursts upward (uses a charge).
+- **Combat**: a burst (`duck.dy < -7`) kills regular enemies on contact. Bosses take damage from bursts or from stomps while dazed.
+- **Health**: 100 HP, 25 damage per hit (15 for Tough Duck), invincibility frames after a hit. Falling out of the Sky Kingdom is instant death.
+- **Lava**: touching it calls `hurtDuck(LAVA_DAMAGE + lap * 5)` and always launches the duck with `LAVA_BOUNCE` (even while invincible), so it can't sit in the lava. The shield absorbs a touch as with any hit.
+- **Biome entry**: when the new biome's floor is `lava` or `void`, `checkBiomeTransition()` adds a 640px ledge under the duck and lifts it onto it if needed, so the biome switch itself can never kill.
+- **Water** (Ocean Shore and Deep Swamp): the duck is buoyant. A capped spring (`BUOYANCY`) pulls it to a float line with half its body underwater; drag is heavy underwater except on fast upward moves, so swim strokes and bursts still carry. Holding ↓/S (or the DIVE touch button, `touchDive`) applies `DIVE_FORCE` downward. When the head is under (`duck.y + 6 > floorY`), `duck.breath` drains (max `BREATH_MAX`, doubled by Deep Lungs); at 0 the duck takes `DROWN_DAMAGE` every `DROWN_INTERVAL` frames. HP regenerates **only while floating at the surface** (+8 every `HP_REGEN_INTERVAL` = 120 frames; Healing Waters halves the interval).
+- **Biomes**: Ocean Shore 0m, Deep Swamp 1500m, Arctic Tundra 3000m, Volcanic Waste 4500m, Sky Kingdom 6000m (relative to the lap start).
+- **Bosses**: triggered 150m before the next biome (Storm Serpent at 7300m). While a boss is alive, regular enemies stop spawning and the biome cannot change. Column attacks are placed where the duck will be when the warning ends and are dodged vertically.
+- **Laps**: beating the Storm Serpent sets `lap++`. Each lap scales enemy speed and density (`lapMul = 1 + lap * 0.35`), adds +3 boss HP, and makes bosses attack faster.
+- **Upgrades**: offered every 600m (`UPGRADE_EVERY_PX`), pick 1 of 3 from `UPGRADE_DEFS`.
+- **Meta-progression**: achievements are saved permanently; ducks in `ABILITY_POOL` with an `unlock` id appear only after that achievement is earned.
 
-```javascript
-duck.gravity   = 0.5    // Applied every frame
-duck.swimPower = -6     // dy on SPACE press (jump/swim)
-duck.burstPower = -14   // dy on SHIFT press (burst flight)
-duck.dx        = 1.5    // Constant horizontal drift right
-```
+## Coding Conventions
 
-### Health system
+| Type | Convention | Example |
+|---|---|---|
+| Variables / functions | camelCase | `gameState`, `updateBoss()` |
+| Constants | SCREAMING_SNAKE_CASE | `HIT_DAMAGE`, `BOSS_DEFS` |
+| Section headers | `// ==================== NAME ====================` | |
 
-- Max HP: 100, starting HP: 100
-- Damage per hit: 25 HP + 50px knockback
-- Regen: +10 HP every 60 frames (~1 sec) while on water
-- HP persists across levels (no reset between levels)
-- `HP_GAIN_INTERVAL = 60` frames
+- 4-space indentation, single quotes in JS, double quotes in HTML attributes
+- Imperative, procedural style — global state, direct mutation, no classes or modules
+- Most game code uses `var` and `function` declarations; keep new code consistent with the code around it
+- Comments are sparse — only explain non-obvious logic
 
-### Level progression
+### Anti-patterns to avoid
 
-- Complete a level: reach X > 670 → `level++`, `burstCharges++`
-- Enemy shark speed: `1.0 + (level * 0.2)`, capped at 5
-- Gators gain jump ability at `level > 1`
-- No level cap
+- Do not introduce external dependencies, assets, fonts, or network requests (the game must run offline from one file)
+- Do not split into multiple files or add a build system, framework, or TypeScript
+- Do not apply damage anywhere except `hurtDuck()`, and reset any new per-run state in `startRun()`
 
-### High score system
+## Adding Features — Guidelines
 
-- Stored in `localStorage` under key `'duckGameHighScores'`
-- Top 5 records of `{ initials: string, level: number }`
-- Triggered when `level > lowestTopScore` on game over
-- Entry via arcade-style 3-letter initials (arrow keys + ENTER)
-
-### Audio
-
-- Background music: 8-note C-major loop with bassline using `setInterval`
-- SFX: Procedurally generated with Web Audio API (square/sawtooth/sine waves)
-- `audioCtx` is initialized on first user interaction (browser policy)
-- `isMusicPlaying` guards against duplicate music loops
-
-## Adding New Features — Guidelines
-
-### Adding a new game mechanic
-
-1. Define any new constants near the top of `<script>` with other constants (`HP_GAIN_INTERVAL`, etc.)
-2. Add state variables near the existing state block (lines ~247–305)
-3. Add logic to `updatePhysics()` for per-frame behavior
-4. Add rendering to `draw()` for visual representation
-5. Reset the mechanic in `initLevel()` if it should reset between levels
-
-### Adding a new enemy
-
-1. Add its properties to the `enemy` object
-2. Add initialization in `initLevel()` or enemy setup section (~307–352)
-3. Add `drawPixel<EnemyName>()` render function following the pattern of `drawPixelShark()`
-4. Add collision detection in `updatePhysics()` following the shark/gator pattern
-5. Call the draw function inside `draw()`
-
-### Adding a new sound effect
-
-1. Add a function `sfxName()` following the pattern of `sfxJump()`, `sfxBurst()`, etc.
-2. Call it from the appropriate game event in `updatePhysics()` or input handler
-
-### Modifying the UI
-
-- The HP bar, level counter, and burst charges are HTML elements updated via `document.getElementById()`
-- Canvas drawings (scoreboard, win/game-over screens) are in `draw()` using the canvas 2D context
+- **New enemy**: add a case to `spawnEnemies()` and `updateEnemies()`, add a `_draw<Name>()` sprite and a case in `drawEnemies()`, then list it in a biome's `enemies` array.
+- **New boss**: add an entry to `BOSS_DEFS` (attack lists per phase use `shoot`, `spray`, `lob`, `charge`, or a `COL_TYPES` key), plus a `case` in `drawBoss()`. Triggers use `bossTriggerPx()`.
+- **New upgrade**: add it to `UPGRADE_DEFS` (with a `short` HUD label) and draw an 8×8 icon for it in `ICON_ART`; apply one-off effects in `applyUpgrade()`; check ongoing effects with `activeUpgrades.indexOf(id) !== -1`. Upgrades appear as labelled chips in the HUD via `updateUpgradeChips()`.
+- **New achievement or duck**: add to `ACHIEVEMENT_DEFS` and unlock it with `unlockAchievement(id)`. To gate a duck behind it, set that duck's `unlock` field.
+- **New screen**: add a state, a draw function called from `loop()`, keyboard handling in the `keydown` listener, and clickable areas via `drawButton()`.
 
 ## Git Conventions
 
-Commit messages follow an imperative, descriptive style based on the project history:
-
-```
-Implement HP reward system with water-based regeneration and persistence
-Add high score system with saving and displaying functionality
-Update README with correct file name and enhanced play instructions
-Enhanced audio engine (added high notes, safety checks, sound effects)
-```
-
-- One feature/fix per commit
-- No ticket numbers or prefixes (no `feat:` / `fix:` / etc.)
-- Describe *what* was done and *why* when relevant
+- Imperative, descriptive commit messages ("Add boss fights guarding each biome"), one feature or fix per commit
+- No ticket numbers or prefixes (no `feat:` / `fix:`)
