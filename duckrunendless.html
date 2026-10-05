@@ -65,6 +65,11 @@
             transition: width 0.12s linear, background 0.2s;
         }
 
+        #hpBarOuter.hit {
+            border-color: #ff3030;
+            box-shadow: 0 0 10px #ff2020;
+        }
+
         #burstDisplay {
             color: #ffe066;
             font-size: 13px;
@@ -248,8 +253,8 @@ const BIOME_MUSIC = [
 ];
 
 function startMusic(biomeIdx) {
+    if (biomeIdx === currentMusicBiome && isMusicPlaying && musicInterval) return;
     if (musicInterval) { clearInterval(musicInterval); musicInterval = null; }
-    if (biomeIdx === currentMusicBiome && isMusicPlaying) return;
     currentMusicBiome = biomeIdx;
     isMusicPlaying    = true;
     musicStep         = 0;
@@ -412,37 +417,56 @@ const ACHIEVEMENT_DEFS = [
     { id:'upgrade_3',      name:'Power Up',        desc:'Take 3 upgrades in one run'            },
     { id:'no_hit_500',     name:'Untouchable',     desc:'Reach 500m without taking damage'      },
     { id:'boss_1',         name:'Giant Slayer',    desc:'Defeat a boss'                         },
-    { id:'boss_all',       name:'Legend of the Pond', desc:'Defeat all 5 bosses in one run'     }
+    { id:'boss_all',       name:'Legend of the Pond', desc:'Defeat all 5 bosses in one run'     },
+    { id:'lap_2',          name:'Second Wind',     desc:'Loop back to the Ocean Shore'          }
 ];
 
 // ==================== STARTING ABILITY POOL ====================
 const ABILITY_POOL = [
     {
-        name:'Standard Duck',
+        name:'Standard Duck', unlock:null,
         desc:'Start with +1 extra burst charge',
         apply:function() { duck.burstCharges += 1; }
     },
     {
-        name:'Tough Duck',
+        name:'Tough Duck', unlock:null,
         desc:'+25 max HP. Take only 15 damage per hit',
         apply:function() { duck.maxHp += 25; duck.hp += 25; activeUpgrades.push('tough'); }
     },
     {
-        name:'Swift Duck',
-        desc:'+0.8 base speed, slightly lower gravity',
-        apply:function() { duck.speed = BASE_SPEED + 0.8; duck.swiftMode = true; }
-    },
-    {
-        name:'Water Duck',
+        name:'Water Duck', unlock:null,
         desc:'Start with Healing Waters upgrade active',
         apply:function() { activeUpgrades.push('hp_regen'); }
     },
     {
-        name:'Storm Duck',
+        name:'Swift Duck', unlock:'dist_500',
+        desc:'+0.8 base speed, slightly lower gravity',
+        apply:function() { duck.speed = BASE_SPEED + 0.8; duck.swiftMode = true; }
+    },
+    {
+        name:'Storm Duck', unlock:'boss_1',
         desc:'Start with 3 burst charges',
         apply:function() { duck.burstCharges = 3; }
+    },
+    {
+        name:'Lucky Duck', unlock:'reach_arctic',
+        desc:'Start with Fish Magnet and a Bubble Shield',
+        apply:function() { activeUpgrades.push('magnet', 'shield'); duck.shield = true; }
+    },
+    {
+        name:'Phoenix Duck', unlock:'reach_volcanic',
+        desc:'Once per run, rise from death with half HP',
+        apply:function() { duck.phoenix = true; }
     }
 ];
+
+function unlockedAbilities() {
+    return ABILITY_POOL.filter(function(a) { return !a.unlock || hasAchievement(a.unlock); });
+}
+
+function abilityUnlockedBy(achId) {
+    return ABILITY_POOL.filter(function(a) { return a.unlock === achId; })[0] || null;
+}
 
 // ==================== META-PROGRESSION ====================
 const META_KEY = 'duckrun_meta';
@@ -474,7 +498,9 @@ function unlockAchievement(id) {
     meta.achievements.push(id);
     saveMeta();
     const def = ACHIEVEMENT_DEFS.filter(function(a){ return a.id === id; })[0];
-    if (def) toasts.push({ text:'ACHIEVEMENT: ' + def.name, sub: def.desc, timer:220 });
+    if (def) toasts.push({ text:'ACHIEVEMENT: ' + def.name, timer:220 });
+    const ab = abilityUnlockedBy(id);
+    if (ab) toasts.push({ text:'NEW DUCK UNLOCKED: ' + ab.name, timer:260 });
 }
 
 let meta = loadMeta();
@@ -493,6 +519,12 @@ let currentBiomeIdx  = 0;
 let lastUpgradePx    = 0;
 let activeUpgrades   = [];
 let noHitRun         = true;
+let lap              = 0;   // completed loops through all five biomes
+let lapStartPx       = 0;
+let lapBosses        = [];  // boss indices beaten during the current lap
+let hpFlashTimer     = 0;
+let phoenixUsed      = false;
+let achReturnState   = 'TITLE';
 
 // Screen shake
 let shakeFrames    = 0;
@@ -569,6 +601,10 @@ function formatTime(ms) {
 }
 
 function distMeters() { return Math.floor(distancePx / 10); }
+
+function biomeLabel() {
+    return BIOMES[currentBiomeIdx].name + (lap > 0 ? '  \u00B7  LAP ' + (lap + 1) : '');
+}
 
 // ==================== PARTICLE SYSTEM ====================
 function spawnParticle(x, y, dx, dy, life, color, size) {
@@ -1222,8 +1258,9 @@ function spawnEnemies() {
         var b    = BIOMES[currentBiomeIdx];
         var pool = b.enemies;
         var type = pool[Math.floor(Math.random() * pool.length)];
-        var spd  = Math.min(4.0, 1.2 + distancePx * 0.00008);
-        var gap  = 360 + Math.random() * 280;
+        var lapMul = 1 + lap * 0.35;
+        var spd  = Math.min(4.0 * lapMul, (1.2 + (distancePx - lapStartPx) * 0.00008) * lapMul);
+        var gap  = (360 + Math.random() * 280) / Math.sqrt(lapMul);
         var wx   = nextEnemyX + gap * 0.5;
         var e    = null;
 
@@ -1412,6 +1449,7 @@ function hurtDuck() {
     var dmg = activeUpgrades.indexOf('tough') !== -1 ? 15 : HIT_DAMAGE;
     duck.hp        -= dmg;
     duck.invincible = HIT_INV_FRAMES;
+    hpFlashTimer    = 24;
     shakeFrames     = 10; shakeMagnitude = 7;
     sfxHit();
     spawnFeathers(DUCK_SCREEN_X + 16, duck.y + 14);
@@ -1448,18 +1486,19 @@ var COL_TYPES = {
 };
 
 function bossTriggerPx(i) {
-    return i < 4 ? (BIOMES[i + 1].startDist - 150) * 10 : (BIOMES[4].startDist + 1300) * 10;
+    return lapStartPx + (i < 4 ? (BIOMES[i + 1].startDist - 150) * 10 : (BIOMES[4].startDist + 1300) * 10);
 }
 
 function checkBossTrigger() {
     if (boss) return;
     var i = currentBiomeIdx;
-    if (i < BOSS_DEFS.length && bossesBeaten.indexOf(i) === -1 && distancePx >= bossTriggerPx(i)) spawnBoss(i);
+    if (i < BOSS_DEFS.length && lapBosses.indexOf(i) === -1 && distancePx >= bossTriggerPx(i)) spawnBoss(i);
 }
 
 function spawnBoss(i) {
     var d = BOSS_DEFS[i];
-    boss = { idx:i, def:d, x:W + 40, y:200, w:d.w, h:d.h, hp:d.hp, maxHp:d.hp,
+    var hp = d.hp + lap * 3;
+    boss = { idx:i, def:d, x:W + 40, y:200, w:d.w, h:d.h, hp:hp, maxHp:hp,
              state:'intro', timer:0, phase:0, attackIdx:0, hitFlash:0, invuln:0,
              chargeY:0, featherTimer:0, bannerText:'', bannerTimer:0 };
     boss.y = bossHomeY();
@@ -1565,10 +1604,19 @@ function defeatBoss() {
     duck.burstCharges++;
     duck.hp = Math.min(duck.maxHp, duck.hp + 30);
     bossesBeaten.push(b.idx);
+    lapBosses.push(b.idx);
     toasts.push({ text:b.def.name + ' DEFEATED! +30 HP +1 BURST', timer:260 });
     unlockAchievement('boss_1');
     if (bossesBeaten.length >= BOSS_DEFS.length) unlockAchievement('boss_all');
     boss = null; bossShots = []; bossCols = [];
+    if (b.idx === BOSS_DEFS.length - 1) {
+        // Final boss beaten: loop back to the Ocean Shore, everything a bit meaner
+        lap++;
+        lapStartPx = distancePx;
+        lapBosses  = [];
+        toasts.push({ text:'LAP ' + (lap + 1) + ': THE POND FIGHTS BACK!', timer:300 });
+        unlockAchievement('lap_2');
+    }
     startMusic(BIOMES[currentBiomeIdx].musicIdx);
 }
 
@@ -1592,7 +1640,7 @@ function updateBoss() {
         shakeFrames = 14; shakeMagnitude = 5;
         sfxBossAlert();
     }
-    var rage  = 1 + b.phase * 0.3;
+    var rage  = 1 + b.phase * 0.3 + lap * 0.3;
     var homeX = W - 190, homeY = bossHomeY();
 
     switch (b.state) {
@@ -1991,6 +2039,9 @@ function updatePhysics() {
     else         { duck.dy += effG;        if (duck.dy > MAX_FALL) duck.dy = MAX_FALL; }
     duck.y += duck.dy;
 
+    if (inWater && duck.y + duck.h > H - 4) { duck.y = H - 4 - duck.h; duck.dy = 0; }
+    if (hpFlashTimer > 0) hpFlashTimer--;
+
     // State
     if (inWater) duck.state = 'water';
     else if (duck.state !== 'ground') duck.state = 'air';
@@ -2046,6 +2097,23 @@ function updatePhysics() {
     // ── Invincibility tick ──
     if (duck.invincible > 0) duck.invincible--;
 
+    // ── Phoenix rebirth (once per run) ──
+    if ((duck.hp <= 0 || !duck.alive) && duck.phoenix && !phoenixUsed) {
+        phoenixUsed = true;
+        duck.alive = true;
+        duck.hp = Math.ceil(duck.maxHp / 2);
+        duck.y = Math.min(duck.y, 160);
+        duck.dy = -10;
+        duck.state = 'air';
+        duck.invincible = 150;
+        duck.burstCharges++;
+        spawnExplosion(DUCK_SCREEN_X + 16, duck.y + 16);
+        spawnExplosion(DUCK_SCREEN_X + 16, duck.y + 30);
+        shakeFrames = 18; shakeMagnitude = 6;
+        sfxUpgrade();
+        toasts.push({ text:'PHOENIX REBIRTH!', timer:200 });
+    }
+
     // ── Death ──
     if (duck.hp <= 0 || !duck.alive) {
         duck.hp = 0; duck.alive = false; isDying = true;
@@ -2083,7 +2151,8 @@ function updateHUD() {
     for (var b = 0; b < duck.burstCharges; b++) bursts += '\u26A1';
     document.getElementById('burstDisplay').textContent  = bursts || '\u25CB';
     document.getElementById('distanceDisplay').textContent = distMeters() + 'm';
-    document.getElementById('biomeDisplay').textContent   = BIOMES[currentBiomeIdx].name;
+    document.getElementById('biomeDisplay').textContent   = biomeLabel();
+    document.getElementById('hpBarOuter').className      = hpFlashTimer > 0 ? 'hit' : '';
     document.getElementById('fishDisplay').textContent    = '\uD83D\uDC1F ' + fish;
     document.getElementById('killDisplay').textContent    = '\uD83D\uDC80 ' + kills;
 
@@ -2102,7 +2171,7 @@ function checkBiomeTransition() {
     if (boss) return; // the boss guards the way to the next biome
     var newIdx = 0;
     for (var i = BIOMES.length - 1; i >= 0; i--) {
-        if (distancePx >= BIOMES[i].startDist * 10) { newIdx = i; break; }
+        if (distancePx - lapStartPx >= BIOMES[i].startDist * 10) { newIdx = i; break; }
     }
     if (newIdx !== currentBiomeIdx) {
         currentBiomeIdx = newIdx;
@@ -2132,7 +2201,7 @@ function startRun() {
     duck.hp = 100; duck.maxHp = 100; duck.burstCharges = 1;
     duck.animFrame = 0; duck.animTimer = 0; duck.invincible = 0;
     duck.shield = false; duck.airJumps = 0; duck.maxAirJumps = 0;
-    duck.alive = true; duck.swiftMode = false;
+    duck.alive = true; duck.swiftMode = false; duck.phoenix = false;
 
     // Reset run state
     fish = 0; kills = 0; distancePx = 0;
@@ -2141,6 +2210,7 @@ function startRun() {
     toasts = []; shakeFrames = 0; shakeMagnitude = 0;
     hpRegenTimer = 0; isDying = false;
     boss = null; bossShots = []; bossCols = []; bossesBeaten = [];
+    lap = 0; lapStartPx = 0; lapBosses = []; hpFlashTimer = 0; phoenixUsed = false;
     runStartTime = Date.now(); frameCount = 0;
 
     // Reset world
@@ -2309,7 +2379,8 @@ function drawTitleScreen() {
     // Controls hint
     ctx.font = '12px Courier New';
     ctx.fillStyle = '#555566';
-    ctx.fillText('SPACE: Jump / Swim     SHIFT: Burst', W/2, H - 22);
+    ctx.fillText('SPACE: Jump / Swim     SHIFT: Burst     ESC: Pause     A: Achievements', W/2, H - 22);
+    drawButton('[A] ACHIEVEMENTS', W/2 - 100, 312, 200, 30, function() { openAchievements('TITLE'); });
 
     ctx.textAlign = 'left';
 }
@@ -2372,6 +2443,21 @@ function drawAbilityPick() {
     ctx.fillStyle = '#555566';
     ctx.textAlign = 'center';
     ctx.fillText('Keys 1 / 2 / 3  or  click a card', W/2, 118 + ch + 28);
+
+    // Meta-progression: how many ducks are unlocked, and how to get the next one
+    var owned = unlockedAbilities().length;
+    ctx.font = 'bold 13px Courier New';
+    ctx.fillStyle = '#7fe0ff';
+    ctx.fillText('DUCKS UNLOCKED: ' + owned + ' / ' + ABILITY_POOL.length, W/2, 118 + ch + 64);
+    for (var li = 0; li < ABILITY_POOL.length; li++) {
+        var locked = ABILITY_POOL[li];
+        if (!locked.unlock || hasAchievement(locked.unlock)) continue;
+        var ach = ACHIEVEMENT_DEFS.filter(function(a) { return a.id === locked.unlock; })[0];
+        ctx.font = '12px Courier New';
+        ctx.fillStyle = '#666688';
+        ctx.fillText('Next: ' + locked.name + '  \u2014  ' + ach.desc, W/2, 118 + ch + 86);
+        break;
+    }
     ctx.textAlign = 'left';
 }
 
@@ -2470,11 +2556,11 @@ function drawDeathScreen() {
     var rows = [
         ['DISTANCE',    distMeters() + 'm'],
         ['TIME',        formatTime(elapsed)],
-        ['BIOME',       BIOMES[currentBiomeIdx].name],
+        ['BIOME',       biomeLabel()],
         ['KILLS',       kills + ''],
         ['FISH',        fish  + ''],
         ['UPGRADES',    activeUpgrades.length + ''],
-        ['BOSSES',      bossesBeaten.length + ' / ' + BOSS_DEFS.length]
+        ['BOSSES',      bossesBeaten.length + '']
     ];
 
     ctx.font = '14px Courier New';
@@ -2510,22 +2596,18 @@ function drawDeathScreen() {
         ctx.fillText(names.join('  \u00B7  '), W/2, py + ph + 20);
     }
 
-    // Restart prompt
-    if (Math.floor(frameCount / 32) % 2 === 0) {
-        ctx.font = 'bold 17px Courier New';
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.fillText('PRESS  R  TO  RESTART', W/2, H - 30);
-    }
+    drawButton('[R] RESTART',      W/2 - 214, H - 62, 204, 36, goToAbilityPick);
+    drawButton('[A] ACHIEVEMENTS', W/2 + 10,  H - 62, 204, 36, function() { openAchievements('DEAD'); });
 
     ctx.textAlign = 'left';
 }
 
 // ==================== DRAW: TOASTS ====================
 function drawToasts() {
+    if (toasts.length > 4) toasts.splice(0, toasts.length - 4);
     for (var i = toasts.length - 1; i >= 0; i--) {
         var t = toasts[i];
-        t.timer--;
+        if (gameState !== 'PAUSED') t.timer--;
         if (t.timer <= 0) { toasts.splice(i, 1); continue; }
 
         var alpha = Math.min(1, t.timer / 35);
@@ -2552,11 +2634,129 @@ function drawToasts() {
     ctx.textAlign = 'left';
 }
 
+// ==================== UI BUTTONS ====================
+var uiButtons = []; // rebuilt every frame by drawButton(); clicks are hit-tested against it
+
+function drawButton(label, x, y, w, h, action) {
+    uiButtons.push({ x:x, y:y, w:w, h:h, action:action });
+    var pulse = 0.5 + 0.5 * Math.sin(frameCount * 0.08);
+    ctx.fillStyle = 'rgba(30,30,70,0.92)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = 'rgba(255,224,102,' + (0.55 + pulse * 0.45) + ')';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    ctx.lineWidth = 1;
+    ctx.font = 'bold 14px Courier New';
+    ctx.fillStyle = '#ffe066';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + w / 2, y + h / 2 + 5);
+    ctx.textAlign = 'left';
+}
+
+// ==================== DRAW: PAUSE OVERLAY ====================
+function drawPauseOverlay() {
+    ctx.fillStyle = 'rgba(0,0,15,0.62)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 56px Courier New';
+    ctx.fillStyle = '#000000'; ctx.fillText('PAUSED', W / 2 + 3, 183);
+    ctx.fillStyle = '#ffffff'; ctx.fillText('PAUSED', W / 2, 180);
+    ctx.font = '14px Courier New';
+    ctx.fillStyle = '#aaaacc';
+    ctx.fillText(distMeters() + 'm  \u00B7  ' + biomeLabel(), W / 2, 214);
+    ctx.textAlign = 'left';
+    drawButton('[ESC] RESUME', W / 2 - 214, 250, 204, 36, resumeGame);
+    drawButton('[Q] QUIT',     W / 2 + 10,  250, 204, 36, quitToTitle);
+}
+
+// ==================== DRAW: ACHIEVEMENTS SCREEN ====================
+function drawAchievementsScreen() {
+    ctx.fillStyle = '#0a0820';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 30px Courier New';
+    ctx.fillStyle = '#ffe066';
+    ctx.fillText('ACHIEVEMENTS', W / 2, 44);
+    ctx.font = '13px Courier New';
+    ctx.fillStyle = '#8888aa';
+    ctx.fillText(meta.achievements.length + ' / ' + ACHIEVEMENT_DEFS.length + ' unlocked   \u00B7   ' +
+        unlockedAbilities().length + ' / ' + ABILITY_POOL.length + ' ducks', W / 2, 66);
+
+    var cw = 372, ch = 42, gx = 14, gy = 7;
+    var x0 = (W - cw * 2 - gx) / 2, y0 = 80;
+    for (var i = 0; i < ACHIEVEMENT_DEFS.length; i++) {
+        var a   = ACHIEVEMENT_DEFS[i];
+        var got = hasAchievement(a.id);
+        var cx  = x0 + (i % 2) * (cw + gx);
+        var cy  = y0 + Math.floor(i / 2) * (ch + gy);
+        ctx.fillStyle = got ? 'rgba(80,62,12,0.95)' : 'rgba(24,24,46,0.95)';
+        ctx.fillRect(cx, cy, cw, ch);
+        ctx.strokeStyle = got ? '#ffe066' : '#33334a';
+        ctx.strokeRect(cx + 0.5, cy + 0.5, cw - 1, ch - 1);
+
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 18px Courier New';
+        ctx.fillStyle = got ? '#ffe066' : '#44445a';
+        ctx.fillText(got ? '\u2713' : '?', cx + 18, cy + 27);
+
+        ctx.textAlign = 'left';
+        ctx.font = 'bold 13px Courier New';
+        ctx.fillStyle = got ? '#ffffff' : '#77778a';
+        ctx.fillText(a.name, cx + 36, cy + 18);
+        ctx.font = '11px Courier New';
+        ctx.fillStyle = got ? '#d8c890' : '#55556a';
+        ctx.fillText(a.desc, cx + 36, cy + 33);
+
+        var ab = abilityUnlockedBy(a.id);
+        if (ab) {
+            ctx.textAlign = 'right';
+            ctx.font = 'bold 10px Courier New';
+            ctx.fillStyle = got ? '#7fe0ff' : '#3f6a7a';
+            ctx.fillText('UNLOCKS ' + ab.name.toUpperCase(), cx + cw - 8, cy + 18);
+        }
+    }
+    ctx.textAlign = 'left';
+    drawButton('[ESC] BACK', W / 2 - 90, H - 44, 180, 32, closeAchievements);
+}
+
+// ==================== STATE CHANGES ====================
+function openAchievements(from) {
+    achReturnState = from;
+    gameState = 'ACHIEVEMENTS';
+}
+
+function closeAchievements() {
+    gameState = achReturnState;
+}
+
+function pauseGame() {
+    if (gameState !== 'PLAYING' || isDying) return;
+    gameState = 'PAUSED';
+    stopMusic();
+}
+
+function resumeGame() {
+    if (gameState !== 'PAUSED') return;
+    gameState = 'PLAYING';
+    startMusic(boss ? 5 : BIOMES[currentBiomeIdx].musicIdx);
+}
+
+function quitToTitle() {
+    stopMusic();
+    boss = null; bossShots = []; bossCols = [];
+    gameState = 'TITLE';
+    document.getElementById('hud').style.display = 'none';
+}
+
+document.addEventListener('visibilitychange', function() {
+    if (document.hidden) pauseGame();
+});
+
 // ==================== INPUT ====================
 var keyHeld = {};
 
 function goToAbilityPick() {
-    var pool = ABILITY_POOL.slice();
+    var pool = unlockedAbilities();
     shuffleArray(pool);
     abilityChoices  = pool.slice(0, 3);
     abilitySelected = -1;
@@ -2569,11 +2769,24 @@ document.addEventListener('keydown', function(e) {
     initAudio();
 
     if (gameState === 'TITLE') {
-        goToAbilityPick();
+        if (e.code === 'KeyA') openAchievements('TITLE');
+        else goToAbilityPick();
+        return;
+    }
+
+    if (gameState === 'ACHIEVEMENTS') {
+        if (e.code === 'Escape' || e.code === 'KeyA' || e.code === 'Enter' || e.code === 'Backspace') closeAchievements();
+        return;
+    }
+
+    if (gameState === 'PAUSED') {
+        if (e.code === 'Escape' || e.code === 'KeyP' || e.code === 'Space') { e.preventDefault(); resumeGame(); }
+        else if (e.code === 'KeyQ') quitToTitle();
         return;
     }
 
     if (gameState === 'ABILITY_PICK') {
+        if (e.code === 'Escape') { gameState = 'TITLE'; return; }
         if (e.code === 'Digit1') selectAbility(0);
         if (e.code === 'Digit2') selectAbility(1);
         if (e.code === 'Digit3') selectAbility(2);
@@ -2589,10 +2802,12 @@ document.addEventListener('keydown', function(e) {
 
     if (gameState === 'DEAD') {
         if (e.code === 'KeyR' || e.code === 'Space') goToAbilityPick();
+        else if (e.code === 'KeyA') openAchievements('DEAD');
         return;
     }
 
     if (gameState === 'PLAYING') {
+        if (e.code === 'Escape' || e.code === 'KeyP') { pauseGame(); return; }
         if (e.code === 'Space')                             { e.preventDefault(); doJump(); }
         if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { e.preventDefault(); doBurst(); }
     }
@@ -2606,7 +2821,14 @@ canvas.addEventListener('click', function(ev) {
     var mx   = (ev.clientX - rect.left) * (W / rect.width);
     var my   = (ev.clientY - rect.top)  * (H / rect.height);
 
+    for (var bi = 0; bi < uiButtons.length; bi++) {
+        var btn = uiButtons[bi];
+        if (mx >= btn.x && mx <= btn.x + btn.w && my >= btn.y && my <= btn.y + btn.h) { btn.action(); return; }
+    }
+
     if (gameState === 'TITLE') { goToAbilityPick(); return; }
+    if (gameState === 'PAUSED') { resumeGame(); return; }
+    if (gameState === 'ACHIEVEMENTS') { closeAchievements(); return; }
 
     if (gameState === 'ABILITY_PICK') {
         var acw = 194, ach = 180, agap = 14;
@@ -2632,7 +2854,7 @@ canvas.addEventListener('click', function(ev) {
         return;
     }
 
-    if (gameState === 'DEAD') { goToAbilityPick(); return; }
+    if (gameState === 'DEAD') return;
 
     if (gameState === 'PLAYING') {
         if (mx < W / 2) doJump(); else doBurst();
@@ -2641,7 +2863,8 @@ canvas.addEventListener('click', function(ev) {
 
 document.getElementById('jumpBtn').addEventListener('touchstart', function(e) {
     e.preventDefault(); initAudio();
-    if (gameState === 'PLAYING') doJump();
+    if (gameState === 'PAUSED') resumeGame();
+    else if (gameState === 'PLAYING') doJump();
 }, { passive: false });
 
 document.getElementById('burstBtn').addEventListener('touchstart', function(e) {
@@ -2652,6 +2875,7 @@ document.getElementById('burstBtn').addEventListener('touchstart', function(e) {
 // ==================== GAME LOOP ====================
 function loop() {
     frameCount++;
+    uiButtons = [];
 
     ctx.save();
 
@@ -2670,13 +2894,18 @@ function loop() {
     } else if (gameState === 'ABILITY_PICK') {
         drawAbilityPick();
 
-    } else if (gameState === 'PLAYING' || gameState === 'UPGRADE') {
-        // World generation
-        generatePlatforms();
-        cullPlatforms();
-        spawnEnemies();
-        generateCollectibles();
-        spawnBiomeParticles();
+    } else if (gameState === 'ACHIEVEMENTS') {
+        drawAchievementsScreen();
+
+    } else if (gameState === 'PLAYING' || gameState === 'UPGRADE' || gameState === 'PAUSED') {
+        // World generation (frozen while paused)
+        if (gameState !== 'PAUSED') {
+            generatePlatforms();
+            cullPlatforms();
+            spawnEnemies();
+            generateCollectibles();
+            spawnBiomeParticles();
+        }
 
         // Logic (paused during upgrade selection)
         if (gameState === 'PLAYING') {
@@ -2685,7 +2914,7 @@ function loop() {
             updateCollectibles();
             updateBoss();
         }
-        updateParticles();
+        if (gameState !== 'PAUSED') updateParticles();
 
         // Render
         drawBackground();
@@ -2699,10 +2928,15 @@ function loop() {
         drawBossShots();
         drawDuck(DUCK_SCREEN_X, duck.y, duck.animFrame, duck.invincible, duck.shield);
         drawParticles();
+        if (hpFlashTimer > 0) {
+            ctx.fillStyle = 'rgba(255,0,0,' + (hpFlashTimer / 24 * 0.22) + ')';
+            ctx.fillRect(0, 0, W, H);
+        }
         drawBossUI();
         drawToasts();
 
         if (gameState === 'UPGRADE') drawUpgradeScreen();
+        if (gameState === 'PAUSED')  drawPauseOverlay();
 
     } else if (gameState === 'DEAD') {
         // Frozen world visible behind death screen
