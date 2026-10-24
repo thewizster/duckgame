@@ -8,7 +8,7 @@ This repo hosts two single-file browser games starring the same pixel duck, plus
 
 - `index.html`: game-select hub (static page linking to both games)
 - `duckrunendless.html`: **Duck Run: Endless**, documented in detail below
-- `duckster.html`: **Duckster: Road Rage**, a separate go-kart racing roguelite with the same single-file approach (its own code, not covered here)
+- `duckster.html`: **Duckster: Road Rage**, a go-kart racing roguelite with the same single-file approach (its own code, documented in [Duckster: Road Rage](#duckster-road-rage) below)
 
 Each game page ends with a fixed "← choose a game" link back to the hub.
 
@@ -28,7 +28,7 @@ The project is a showcase of what an AI-built, single-file, fully offline browse
 duckgame/
 ├── index.html            # Game-select hub
 ├── duckrunendless.html   # Duck Run: Endless (HTML + CSS + JS)
-├── duckster.html         # Duckster: Road Rage (HTML + CSS + JS)
+├── duckster.html         # Duckster: Road Rage (HTML + CSS + JS, ~4,100 lines)
 ├── duckgame.jpg          # Reference sketch used during initial development
 ├── README.md             # Player-facing documentation for both games
 ├── CLAUDE.md             # This file
@@ -39,7 +39,7 @@ There are no configuration files, build scripts, test suites, CI/CD pipelines, o
 
 ## Development Workflow
 
-1. Edit `duckrunendless.html` directly — it is the single source of truth for Duck Run
+1. Edit `duckrunendless.html` or `duckster.html` directly — each is the single source of truth for its game
 2. Refresh the browser tab to see changes
 3. Verify (see below), then commit and push
 
@@ -51,6 +51,8 @@ There is no test suite. Useful checks:
 # JS syntax check
 node -e "const h=require('fs').readFileSync('duckrunendless.html','utf8');new Function(h.match(/<script>([\s\S]*)<\/script>/)[1]);console.log('ok')"
 ```
+
+(Swap in `duckster.html` to check Duckster.)
 
 For behavioural checks, drive the game headlessly with Playwright (Chromium is pre-installed in cloud sessions; the module lives at `/opt/node-tools/node_modules/playwright`). Global `let`/`var`/`function` names are reachable via `page.evaluate('...')`, so tests can jump straight to a state, e.g. `duck.worldX = 200 + bossTriggerPx(2) + 10` to summon the Frost Yeti, or `while (boss) { boss.invuln = 0; hitBoss(); }` to finish a boss. Always collect `pageerror` events and finish by playing the game manually.
 
@@ -159,6 +161,47 @@ Run state (reset in `startRun()`): `fish`, `kills`, `distancePx`, `currentBiomeI
 - **New upgrade**: add it to `UPGRADE_DEFS` (with a `short` HUD label) and draw an 8×8 icon for it in `ICON_ART`; apply one-off effects in `applyUpgrade()`; check ongoing effects with `activeUpgrades.indexOf(id) !== -1`. Upgrades appear as labelled chips in the HUD via `updateUpgradeChips()`.
 - **New achievement or duck**: add to `ACHIEVEMENT_DEFS` and unlock it with `unlockAchievement(id)`. To gate a duck behind it, set that duck's `unlock` field.
 - **New screen**: add a state, a draw function called from `loop()`, keyboard handling in the `keydown` listener, and clickable areas via `drawButton()`.
+
+## Duckster: Road Rage
+
+`duckster.html` follows the same conventions as Duck Run (one `<script>`, `// ==================== NAME ====================` sections, global state, `var`/`function`). Run state is reset in `startRun()`, and all damage goes through `hurtKart(amount, fxX, fxY)`. It returns early while `kart.invincible > 0` **or `kart.boostTimer > 0`** (boosting is a ram), and applies the shield and the Tank/Bruiser `kart.tough` reduction. The localStorage key is `duckster_meta`.
+
+### Sections (in order)
+
+| Section | Contents |
+|---|---|
+| AUDIO ENGINE | `playTone()`, `BIOME_MUSIC` (index 5 = boss theme), `sfx*()` |
+| CONSTANTS | Physics, `UPGRADE_EVERY_PX` (5500), `VICTORY_DIST` (80000 px = 8000m), `FLIP_FRAMES`, `MAX_GP` |
+| BIOME / UPGRADE / ACHIEVEMENT DEFINITIONS | `BIOMES` (each has a `hazard` kind and `hazardTip`), `UPGRADE_DEFS` (`short` HUD label, `stack:true` = can be offered again), `ACHIEVEMENT_DEFS` |
+| UPGRADE ICONS | `ICON_ART` 8×8 maps, `drawPixelIcon()`, `ICON_URLS` |
+| STARTING ABILITY POOL | `ABILITY_POOL` karts (`unlock`, `paint` [body, highlight, shadow], `apply`) |
+| GARAGE / META-PROGRESSION | `GARAGE_DEFS` perks bought with `meta.cornBank`; `meta.garage`, `meta.gpUnlocked` |
+| BOSS SYSTEM / BOSS DRAWING | `BOSS_DEFS`, `bossTriggerPx()`, `spawnBoss()`, `updateBoss()` state machine, `hitBoss()`, `defeatBoss()`, `drawBoss*()` |
+| RIVALS | `RIVAL_DEFS` (`skill` scales top speed), `updateRivals()`, `knockOutRival()`, `racePosition()`, countdown |
+| PHYSICS | `updatePhysics()`: countdown gate, hazards (`patchUnderKart()`), speed/boost, gravity, floor, flips, `landKart()` |
+| UPGRADE SELECTION | `upgradePool()`, `triggerUpgrade()`, `applyUpgrade()`, pit-stop `rerollUpgrades()` / `repairKart()` |
+| OBSTACLE GENERATION / COLLISION / DRAWING | `ramp` (ridden: `kart.onRamp`), `barrier` (`drum` = boss drop, `smashed` by boost), `pothole`, `patch` (`kind`: sand / oil / ice / lowg / fire) |
+| DRAW: KART SPRITE | `drawKart(k, x, y, groundY)` draws the player, rivals and previews from any object with `state, animFrame, invincible, shield, paint, boostTimer, rot, driver` |
+| DRAW: screens | Title, kart pick (+ GP selector), pit stop (+ shop), garage, wipeout/victory (`drawRunStats()`), pause, achievements |
+| UI BUTTONS / CARD LAYOUT | `drawButton(label, x, y, w, h, action, disabled)`; `cardLayout()` + `mouseIn()` share card rects for drawing, hover and clicks |
+| INPUT / GAME LOOP / FIT TO SCREEN | Keyboard, clicks hit-test `uiButtons`, touch JUMP/FLIP/BOOST/pause; `loop()` per state |
+| ENEMY SPAWNING / UPDATE / DRAWING, COLLECTIBLES | 15 enemy types (3 per biome), corn/breadcrumb/fuel/heart pickups (`addCorn()` applies Corn Scoop and GP bonuses) |
+
+### State machine
+
+```
+TITLE ─any key─▶ ABILITY_PICK ─1/2/3─▶ PLAYING ⇄ UPGRADE (pit stop, every 550m)
+  │ G ▶ GARAGE                          ⇅ ESC/P        │
+  │ A ▶ ACHIEVEMENTS ◀─A─ DEAD/VICTORY ◀┘           PAUSED ─Q─▶ TITLE
+```
+
+### Key mechanics
+
+- **Course distance**: `distancePx = kart.worldX - 200 - bossPx`. It stands still during a boss duel (`bossPx` accumulates), so biome changes, pit stops and the finish line wait for the boss. Rivals move in lockstep with the kart (`kartAdvance`) during a duel.
+- **Bosses** live in screen space (`boss.x`, `bossShots`). Attacks: `roll`, `lob` (lands as a `fire` patch obstacle), `drop` (a `drum` barrier), `brake` (warning, then slides under the kart and becomes `dazed`). Hit them by landing on them from above during `brake`/`dazed`, or by boosting into them.
+- **Rivals** are in world space and can be knocked out by a boost or a stomp. A rival close behind may boost-ram you (`hurtKart(15)`).
+- **Grand Prix**: `gpLevel` (picked on the kart screen, up to `meta.gpUnlocked`) scales enemies (`gpMul()`), obstacle spacing, boss HP/cooldown, rival skill and corn.
+- **Tests**: `startRun()` begins with a 180-frame `countdown`; set `countdown = 0` before driving the kart from Playwright. Teleporting with `kart.worldX = 200 + X` works while `bossPx` is 0. Set `bossDone = [true,true,true,true,true]` to skip bosses.
 
 ## Git Conventions
 

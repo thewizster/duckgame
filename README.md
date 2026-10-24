@@ -178,7 +178,7 @@ Enjoy the run! 🦆
 
 # Duckster: Road Rage
 
-An infinite side-scrolling racing roguelite. The duck ditches the water and straps into a go-kart.
+A side-scrolling kart-racing roguelite. The duck ditches the water, straps into a go-kart and races seven rivals across five biomes to the finish line, with a boss duel at the end of every zone.
 
 ## How to Play
 
@@ -187,101 +187,124 @@ An infinite side-scrolling racing roguelite. The duck ditches the water and stra
 | Input | Action |
 |---|---|
 | **SPACE** | Jump / double jump |
-| **SHIFT** | Boost — short speed burst, uses a charge |
-| **1 / 2 / 3** | Select ability or upgrade in menus |
-| **R** | Restart after a wipeout |
-| **Left tap** | Jump (mobile) |
-| **Right tap** | Boost (mobile) |
+| **SHIFT** | Boost: a burst of speed that rams through enemies, barriers and rivals (uses a charge) |
+| **↓ / S** (hold, in the air) | Backflip |
+| **1 / 2 / 3** | Pick a kart or an upgrade |
+| **← / →** | Choose the Grand Prix level (kart pick screen, once unlocked) |
+| **R / H** | Reroll upgrades / repair (at a pit stop, costs corn) |
+| **ESC / P** | Pause / resume (also pauses when you switch tabs) |
+| **Q** | Quit to title (paused or end screen) |
+| **G** | Garage (title screen) |
+| **A** | Achievements (title or end screen) |
+| **Left / right tap** | Jump / boost (mobile), plus FLIP and pause buttons |
 
 ### The basics
 
-- The kart drives right automatically — your job is to keep it on the road
-- **Jump** over obstacles and onto enemies — landing on an enemy from above stomps it
-- **Boost** for a burst of speed to blast through tight spots or escape danger
-- **Ramps** launch the kart into the air — land cleanly or take damage
-- **Collect corn and breadcrumbs** to rack up points; **hearts** restore HP; **fuel cans** add a boost charge
-- Wipe out and your run ends, but your best distance and achievements are saved
+- The kart drives itself. Your job is to keep it in one piece and get to the front.
+- **Jump** barriers, potholes and ground enemies. Landing on an enemy or rival **stomps** it.
+- **Boost** makes you a battering ram: while it lasts, you smash through enemies, barriers and rivals without taking damage.
+- **Ramps** are ridden up and launch you off the lip. **Hold ↓** in the air to backflip. A clean landing pays corn, and a double flip also refills a boost. Landing **mid-flip** costs 20 HP.
+- Every biome after the first has a **road hazard**: sand drifts slow you, oil slicks spin you out (no jumping), black ice speeds you up but weakens jumps, and zero-G strips let you float.
+- **Corn** is spent at pit stops (rerolls, repairs) and banked at the end of every run for the **Garage**. **Hearts** restore HP, **fuel cans** add a boost.
+- HP slowly regenerates while you're on the ground.
+
+### Rivals
+
+Seven rival ducks start ahead of you on a staggered grid after a 3-2-1 countdown. The HUD shows your position, and an arrow points to the next rival ahead. The two fastest rivals outpace an un-upgraded kart, so first place takes upgrades, boosts, or knocking rivals out by ramming or stomping them (+10 corn each). Watch out: a rival right behind you will try to boost-ram past.
+
+### Zone bosses
+
+220m before each biome change, and before the finish line, a boss blocks the road and the course stops counting down until it's beaten:
+
+| Boss | Zone | Attacks |
+|---|---|---|
+| **Tractor Ted** | Country Road | Rolling hay bales, brake-checks, drums |
+| **Sandstorm Sid** | Desert Highway | Rolling rocks, fire lobs |
+| **Big Rig Rhonda** | City Streets | Oil drums, rolling tires, fire lobs |
+| **Avalanche Al** | Mountain Pass | Snowballs, fire lobs, drums |
+| **Captain Cosmos** | Space Highway | Plasma, lobs, drums, fast brake-checks |
+
+Jump the rollers and the fire patches lobbed shots leave behind. When a boss flashes **!**, it brake-checks back under you: jump, land on it while it's dazed, or boost-ram it. Bosses speed up at 2/3 and 1/3 health. Each one pays +50 corn and +25 HP.
 
 ### Upgrades
 
-Every **1000px** the game pauses for a **Pit Stop** — pick one of three random upgrades:
+Every **550m** a **Pit Stop** offers three random upgrades (owned ones aren't offered again). Spend run corn to **reroll** the cards or **repair** 40 HP.
 
 | Upgrade | Effect |
 |---|---|
-| Suspension Springs | Double jump while airborne |
-| Roll Cage | Absorb one hit before recharging |
+| Suspension Springs | Double jump |
+| Roll Cage | Absorb one hit; recharges 400m after breaking |
 | Turbo Engine | +0.6 max speed |
-| Off-Road Tires | Ignore hard-landing damage |
-| Nitro Tank | +1 boost charge |
-| Magnet Bumper | Auto-collect items within 120px |
-| Exhaust Fire | Boost leaves a damaging fire trail |
-| Rocket Boost | Boost adds extra power |
-| Monster Wheels | Big wheels negate hard-landing damage |
-| Duck Armor | +25 max HP and restore 25 HP |
+| Off-Road Tires | Ramp launches go 30% higher |
+| Nitro Tank | +1 boost charge (stacks) |
+| Magnet Bumper | Auto-collect items within 130px |
+| Exhaust Fire | Boosting blasts nearby enemies |
+| Rocket Boost | Boost speed +2 and duration +50% |
+| Monster Wheels | Bad landings deal no damage; +50% trick corn |
+| Duck Armor | +25 max HP and restore 25 HP (stacks) |
 
-### Starting abilities
+### Karts
 
-At the start of each run, choose one of three randomly offered abilities:
+Pick one of three random karts at the start of each run. Three are available from the start, and the rest unlock with achievements:
 
-- **Speed Demon** — higher top speed, lower gravity
-- **Tank Duck** — +30 max HP, take only 15 damage per hit
-- **Nitro Duck** — start with 2 boost charges
-- **Rally Duck** — starts with Off-Road Tires and Suspension Springs
-- **Mechanic Duck** — start with Roll Cage already active
+| Kart | Ability | Unlocked by |
+|---|---|---|
+| **Speed Demon** | +0.8 base speed, lower gravity | — |
+| **Tank Duck** | +25 max HP, 15 damage per hit | — |
+| **Nitro Duck** | +2 boost charges | — |
+| **Rally Duck** | Starts with Suspension Springs | Desert Drifter |
+| **Mechanic Duck** | Starts with Roll Cage and Magnet Bumper | Street Racer |
+| **Rocket Duck** | Starts with Rocket Boost and Exhaust Fire | Summit Seeker |
+| **Stunt Duck** | Starts with Off-Road Tires and Monster Wheels | Stuntmaster |
+| **Bruiser Duck** | 15 damage per hit, starts with a Roll Cage | Demolition Derby |
+| **Golden Duck** | +2 boosts, Roll Cage, +25 max HP | Finish Line! |
+
+### Garage
+
+Corn from every run is banked. On the title screen, press **G** to buy permanent perks: **Reinforced Chassis** (+10 max HP per level), **Spare Nitro** (+1 starting boost), **Corn Scoop** (+25% corn) and **Pit Crew Pro** (one free reroll per pit stop and cheaper repairs).
+
+### Grand Prix
+
+Winning a Grand Prix unlocks the next one, up to GP9. Each level brings faster, denser enemies, tighter obstacles, tougher and quicker bosses, faster rivals, and +20% corn.
 
 ---
 
 ## Game Features
 
 ### 5 Biomes
-The world changes as you race further:
 
-| Distance | Biome | Feel |
-|---|---|---|
-| 0m | Country Road | Rolling hills, clouds, fences |
-| 12000px | Desert Highway | Dunes, cacti, heat shimmer |
-| 25000px | City Streets | Skyline, streetlights, rain |
-| 40000px | Mountain Pass | Snow peaks, pine trees, blizzard |
-| 58000px | Space Highway | Stars, nebula, planets |
+| Distance | Biome | Hazard | Enemies |
+|---|---|---|---|
+| 0m | Country Road | — | Gator, Hawk, Turtle |
+| 1200m | Desert Highway | Sand drifts | Snake, Vulture, Tumbleweed |
+| 2500m | City Streets | Oil slicks | Taxi, Pigeon, Raccoon |
+| 4000m | Mountain Pass | Black ice | Yeti, Eagle, Boulder |
+| 5800m | Space Highway | Zero-G strips | UFO, Asteroid, Drone |
 
-### 15 Enemy Types
-Gator · Hawk · Turtle · Snake · Vulture · Tumbleweed · Taxi · Pigeon · Raccoon · Yeti · Eagle · Boulder · UFO · Asteroid · Drone
+The finish line is at **8000m**.
 
-Each enemy type is introduced by biome, with stomp-kill mechanics for enemies that can be jumped on.
+### 18 Achievements
 
-### Roguelite progression
-- Each run is independent — wipe out and start fresh with a new ability
-- Upgrade choices are randomised every run
-- Speed increases gradually the further you go
-- Best distance, run count, and achievements persist via localStorage
-
-### 11 Achievements
-Unlocked across runs and shown as toast notifications:
-
-First Lap · Half Mile · Marathon Duck · Reach the Desert · Reach the City · Reach the Mountains · Reach Space · Road Warrior · Pit Crew · Untouchable · Finish Line
+First Lap · Half Klick · Road Warrior · Desert Drifter · Street Racer · Summit Seeker · Star Duck · Road Bully · Pit Crew · Clean Run · Finish Line! · Stuntmaster · Demolition Derby · Podium Finish · Champion · Road Boss · Boss Rush · Grand Prix Legend
 
 ### Polish
-- Parallax backgrounds (3+ layers per biome)
-- Particle system — tire dust, rocket flames, boost exhaust, sparks, biome ambients (dust, rain, snow, stars)
-- Dynamic kart shadow that shrinks as you go airborne
-- Speed lines during boost
-- Biome transition flash
-- Screen shake on every hit
-- Distance milestone toasts (500m, 1km, 2km…)
-- Victory fireworks on the win screen
-- 5 biome-specific music themes
-- 11 sound effects procedurally generated with Web Audio API
-- Full mobile/touch support
+
+- Parallax backgrounds (3+ layers per biome) and biome ambient particles
+- Rideable ramps with kart tilt, backflips, and a shadow that shrinks as you rise
+- Pixel-art upgrade icons, HUD chips, and per-kart paint jobs
+- Speed lines, screen shake, biome transition flash, victory fireworks
+- 5 biome music themes plus a boss theme, all generated with the Web Audio API
+- Scales to fit any window, with full touch controls
 
 ---
 
 ## Technical Details
 
 - **Technology:** Pure HTML5 Canvas + vanilla JavaScript + CSS
-- **Size:** Single `duckster.html` file, ~2900 lines
+- **Size:** Single `duckster.html` file, ~4,100 lines
 - **Dependencies:** None
 - **Build tools:** None
-- **Created with:** Claude Sonnet 4.6
+- **Created with:** Claude Sonnet 4.6, overhauled with Claude Opus 5.5 via Claude Code
 
 ---
 
