@@ -303,9 +303,9 @@ const GEN_AHEAD        = 1000;
 const VICTORY_DIST     = 80000;   // ~8000m triggers victory
 const HP_REGEN_INTERVAL = 300;    // frames between passive road-side HP ticks
 const HP_REGEN_AMOUNT   = 4;      // HP restored per tick (on ground)
-const HARD_LAND_DY      = 9;      // dy threshold for hard-landing HP loss
-const HARD_LAND_DAMAGE  = 10;     // HP cost for hard landing without big_wheels
-const DIST_MILESTONES   = [500, 1000, 2000, 3000, 4000, 5000, 6000, 7000];
+const SHIELD_RECHARGE_PX = 4000;  // Roll Cage re-arms 400m after breaking
+const EXHAUST_RADIUS    = 150;    // Exhaust Fire blast radius (px)
+const DIST_MILESTONES   = [500, 1000, 2000, 3000, 4000, 5000, 6000, 7000];   // metres
 
 // ==================== BIOME DEFINITIONS ====================
 const BIOMES = [
@@ -384,15 +384,14 @@ const BIOMES = [
 // ==================== UPGRADE DEFINITIONS ====================
 const UPGRADE_DEFS = [
     { id:'double_jump',    name:'Suspension Springs', desc:'Jump once more while airborne',             icon:'\u2191\u2191', color:'#3498db' },
-    { id:'roll_cage',      name:'Roll Cage',          desc:'Absorb one hit, then recharges at 3000m',   icon:'\u25A1',       color:'#1abc9c' },
+    { id:'roll_cage',      name:'Roll Cage',          desc:'Absorb one hit; recharges 400m after breaking', icon:'\u25A1', color:'#1abc9c' },
     { id:'turbo_engine',   name:'Turbo Engine',       desc:'+0.6 max speed permanently',               icon:'>>',           color:'#e67e22' },
     { id:'off_road_tires', name:'Off-Road Tires',     desc:'Ramp launches are 35% higher',             icon:'/\\/',         color:'#27ae60' },
-    { id:'extra_boost',    name:'Nitro Tank',         desc:'+1 boost charge',                          icon:'+N',           color:'#f1c40f' },
+    { id:'extra_boost',    name:'Nitro Tank',         desc:'+1 boost charge',                          icon:'+N',           color:'#f1c40f', stack:true },
     { id:'magnet',         name:'Magnet Bumper',      desc:'Auto-collect items within 130px',          icon:'(())',         color:'#9b59b6' },
     { id:'exhaust_fire',   name:'Exhaust Fire',       desc:'Boost use blasts nearby enemies',          icon:'><',           color:'#e74c3c' },
     { id:'rocket_boost',   name:'Rocket Boost',       desc:'Boost speed +2 and duration +50%',         icon:'/\\',          color:'#16a085' },
-    { id:'big_wheels',     name:'Monster Wheels',     desc:'Hard landings deal no self-damage',        icon:'OO',           color:'#8e44ad' },
-    { id:'hp_up',          name:'Duck Armor',         desc:'+25 max HP and restore 25 HP',             icon:'<3',           color:'#c0392b' }
+    { id:'hp_up',          name:'Duck Armor',         desc:'+25 max HP and restore 25 HP',             icon:'<3',           color:'#c0392b', stack:true }
 ];
 
 // ==================== ACHIEVEMENT DEFINITIONS ====================
@@ -420,7 +419,7 @@ const ABILITY_POOL = [
     {
         name: 'Tank Duck',
         desc: '+25 max HP. Take only 15 damage per hit.',
-        apply: function() { kart.maxHp += 25; kart.hp += 25; activeUpgrades.push('tough'); }
+        apply: function() { kart.maxHp += 25; kart.hp += 25; kart.tough = true; }
     },
     {
         name: 'Nitro Duck',
@@ -486,6 +485,8 @@ let currentBiomeIdx = 0;
 let lastUpgradePx   = 0;
 let activeUpgrades  = [];
 let noHitRun        = true;
+let upgradesTaken   = 0;
+let shieldBrokenAt  = -1;     // distancePx when the Roll Cage broke (-1 = intact)
 
 // Screen shake
 let shakeFrames    = 0;
@@ -508,6 +509,7 @@ let mouseY            = 0;
 let hpRegenTimer      = 0;      // frames since last passive HP tick
 let lastVictoryFirework = 0;    // frame of last firework spawn on victory screen
 let victoryInputLock  = 0;      // frames remaining before victory screen accepts restart input
+let newBest           = false;  // set by recordRun() for the end screens
 
 // ── Kart (duck driving a go-kart) ──
 const kart = {
@@ -522,7 +524,8 @@ const kart = {
     shield: false,
     airJumps: 0, maxAirJumps: 0,
     alive: true,
-    swiftMode: false
+    swiftMode: false,
+    tough: false
 };
 
 // World object arrays (populated in Stage 2 & 3)
@@ -764,12 +767,12 @@ function checkAchievements() {
     if (distMeters() >= 500)  unlockAchievement('dist_500');
     if (distMeters() >= 2000) unlockAchievement('dist_2000');
     if (kills >= 10)          unlockAchievement('kills_10');
-    if (activeUpgrades.length >= 3) unlockAchievement('upgrade_3');
+    if (upgradesTaken >= 3)   unlockAchievement('upgrade_3');
     if (noHitRun && distMeters() >= 500) unlockAchievement('no_hit_500');
 
     // Distance milestone toasts
     while (nextMilestoneIdx < DIST_MILESTONES.length &&
-           distancePx >= DIST_MILESTONES[nextMilestoneIdx]) {
+           distMeters() >= DIST_MILESTONES[nextMilestoneIdx]) {
         toasts.push({ text: MILESTONE_LABELS[nextMilestoneIdx] + ' — Keep going!', timer: 160 });
         nextMilestoneIdx++;
     }
@@ -779,6 +782,7 @@ function checkAchievements() {
             unlockAchievement('victory');
             stopMusic();
             sfxVictory();
+            recordRun();
             gameState = 'VICTORY';
             victoryInputLock = 180; // ~3 seconds before restart is accepted
             document.getElementById('hud').style.display = 'none';
@@ -789,8 +793,30 @@ function checkAchievements() {
 // ==================== PHYSICS ====================
 var isDying = false;
 
+// The single place damage is applied. fxX/fxY (screen space) place the impact sparks.
+function hurtKart(amount, fxX, fxY) {
+    if (kart.invincible > 0 || !kart.alive || isDying) return false;
+    if (fxX !== undefined) spawnSparks(fxX, fxY);
+    spawnFeathers(KART_SCREEN_X + 26, kart.y + 14);
+    if (kart.shield) {
+        kart.shield     = false;
+        kart.invincible = 50;
+        shakeFrames = 5; shakeMagnitude = 4;
+        return true;
+    }
+    if (kart.tough) amount = Math.round(amount * 0.6);
+    kart.hp        -= amount;
+    kart.invincible = HIT_INV_FRAMES;
+    kart.dy         = Math.min(kart.dy, -2);
+    shakeFrames = 10; shakeMagnitude = 7;
+    sfxHit();
+    noHitRun = false;
+    if (kart.hp <= 0) { kart.hp = 0; kart.alive = false; }
+    return true;
+}
+
 function updatePhysics() {
-    if (!kart.alive || isDying) return;
+    if (isDying) return;
 
     // Speed ramp-up over distance
     var maxSpd = MAX_SPEED + (activeUpgrades.indexOf('turbo_engine') !== -1 ? 0.6 : 0);
@@ -821,13 +847,6 @@ function updatePhysics() {
         if (kart.state === 'air' && kart.dy > 2) {
             sfxLand();
             spawnDust(KART_SCREEN_X + kart.w / 2, ROAD_Y);
-            // Hard landing damage (negated by big_wheels upgrade)
-            if (kart.dy > HARD_LAND_DY && activeUpgrades.indexOf('big_wheels') === -1) {
-                kart.hp -= HARD_LAND_DAMAGE;
-                shakeFrames = 5; shakeMagnitude = 4;
-                sfxHit(); noHitRun = false;
-                if (kart.hp <= 0) { kart.hp = 0; kart.alive = false; }
-            }
         }
         kart.y     = ROAD_Y - kart.h;
         kart.dy    = 0;
@@ -842,7 +861,6 @@ function updatePhysics() {
             hpRegenTimer = 0;
             kart.hp = Math.min(kart.maxHp, kart.hp + HP_REGEN_AMOUNT);
             sfxHpRegen();
-            updateHpBar();
         }
     } else if (kart.state !== 'ground') {
         hpRegenTimer = 0;
@@ -867,11 +885,13 @@ function updatePhysics() {
         spawnDust(KART_SCREEN_X + 6, ROAD_Y - 2);
     }
 
-    // Shield recharge at 3000px milestone intervals
+    // Roll Cage recharges every SHIELD_RECHARGE_PX after it breaks
     if (!kart.shield && activeUpgrades.indexOf('roll_cage') !== -1) {
-        var milestone = Math.floor(distancePx / 3000);
-        var prevMile  = Math.floor((distancePx - kart.speed) / 3000);
-        if (milestone > prevMile) kart.shield = true;
+        if (shieldBrokenAt < 0) shieldBrokenAt = distancePx;
+        if (distancePx - shieldBrokenAt >= SHIELD_RECHARGE_PX) {
+            kart.shield = true; shieldBrokenAt = -1;
+            toasts.push({ text:'Roll Cage recharged', timer:120 });
+        }
     }
 
     // Death check
@@ -903,11 +923,11 @@ function startRun() {
     kart.hp = 100; kart.maxHp = 100; kart.boostCharges = 1; kart.boostTimer = 0;
     kart.animFrame = 0; kart.animTimer = 0; kart.invincible = 0;
     kart.shield = false; kart.airJumps = 0; kart.maxAirJumps = 0;
-    kart.alive = true; kart.swiftMode = false;
+    kart.alive = true; kart.swiftMode = false; kart.tough = false;
 
     corn = 0; kills = 0; distancePx = 0;
     currentBiomeIdx = 0; lastUpgradePx = 0;
-    activeUpgrades = []; noHitRun = true;
+    activeUpgrades = []; noHitRun = true; upgradesTaken = 0; shieldBrokenAt = -1;
     toasts = []; shakeFrames = 0; shakeMagnitude = 0;
     isDying = false; runStartTime = Date.now(); frameCount = 0;
     biomeFlash = 0; nextMilestoneIdx = 0; hpRegenTimer = 0; lastVictoryFirework = 0; victoryInputLock = 0;
@@ -926,13 +946,18 @@ function startRun() {
     updateHUD();
 }
 
-function gameOver() {
-    if (gameState === 'DEAD' || gameState === 'VICTORY') return;
-    stopMusic();
+function recordRun() {
     unlockAchievement('first_run');
-    if (distancePx > meta.bestDistance) meta.bestDistance = distancePx;
+    newBest = distancePx > meta.bestDistance;
+    if (newBest) meta.bestDistance = distancePx;
     meta.totalRuns++;
     saveMeta();
+}
+
+function gameOver() {
+    if (gameState !== 'PLAYING') return;
+    stopMusic();
+    recordRun();
     gameState = 'DEAD';
     document.getElementById('hud').style.display = 'none';
 }
@@ -940,8 +965,8 @@ function gameOver() {
 // ==================== UPGRADE SELECTION ====================
 function triggerUpgrade() {
     var pool = UPGRADE_DEFS.filter(function(u) {
-        if (u.id === 'double_jump' && kart.maxAirJumps >= 1) return false;
-        return true;
+        if (u.id === 'roll_cage') return !kart.shield;
+        return u.stack || activeUpgrades.indexOf(u.id) === -1;
     });
     shuffleArray(pool);
     upgradeChoices  = pool.slice(0, 3);
@@ -954,11 +979,12 @@ function applyUpgrade(idx) {
     if (!up) return;
     switch (up.id) {
         case 'double_jump': kart.maxAirJumps = 1;                                             break;
-        case 'roll_cage':   kart.shield = true;                                                break;
+        case 'roll_cage':   kart.shield = true; shieldBrokenAt = -1;                           break;
         case 'extra_boost': kart.boostCharges++;                                               break;
         case 'hp_up':       kart.maxHp += 25; kart.hp = Math.min(kart.maxHp, kart.hp + 25); break;
     }
     if (activeUpgrades.indexOf(up.id) === -1) activeUpgrades.push(up.id);
+    upgradesTaken++;
     sfxUpgrade();
     checkAchievements();
     gameState = 'PLAYING';
@@ -994,8 +1020,24 @@ function doBoost() {
         kart.boostCharges--;
         sfxBoost();
         spawnBoostFX(KART_SCREEN_X - 6, kart.y + kart.h / 2);
+        if (activeUpgrades.indexOf('exhaust_fire') !== -1) exhaustBlast();
         updateHUD();
     }
+}
+
+function exhaustBlast() {
+    var cx = kart.worldX + kart.w / 2, cy = kart.y + kart.h / 2;
+    for (var i = 0; i < enemies.length; i++) {
+        var e = enemies[i];
+        var dx = e.worldX + e.w / 2 - cx, dy = e.y + e.h / 2 - cy;
+        if (dx * dx + dy * dy < EXHAUST_RADIUS * EXHAUST_RADIUS) e.hp = 0;
+    }
+    for (var a = 0; a < 16; a++) {
+        var ang = a / 16 * Math.PI * 2;
+        spawnParticle(KART_SCREEN_X + kart.w / 2, cy, Math.cos(ang) * 6, Math.sin(ang) * 6,
+            20, a % 2 ? '#ff6600' : '#ffcc00', 4);
+    }
+    shakeFrames = 6; shakeMagnitude = 4;
 }
 
 // ==================== DRAW: BACKGROUNDS (parallax per biome) ====================
@@ -1032,7 +1074,7 @@ function drawBgCountryRoad() {
     }
     // Layer 2 (0.20x): rolling hills
     ctx.fillStyle = '#4a7a28';
-    var hOff = (-(cameraX * 0.20)) % (W + 400);
+    var hOff = (-(cameraX * 0.20)) % W;
     var hpts = [[0,260],[100,200],[240,230],[380,180],[520,220],[660,170],[800,210],[940,260]];
     ctx.beginPath();
     ctx.moveTo(hOff, ROAD_Y);
@@ -1058,7 +1100,7 @@ function drawBgCountryRoad() {
 function drawBgDesert() {
     // Layer 1 (0.06x): distant mountains
     ctx.fillStyle = '#c07840';
-    var mOff = (-(cameraX * 0.06)) % (W + 300);
+    var mOff = (-(cameraX * 0.06)) % W;
     ctx.beginPath();
     ctx.moveTo(mOff, ROAD_Y);
     var mpts = [[0,310],[90,240],[200,280],[320,210],[450,260],[580,200],[720,250],[860,310]];
@@ -1093,32 +1135,20 @@ function drawBgDesert() {
 
 function drawBgCity() {
     // Layer 1 (0.15x): distant skyline
-    var skOff = (-(cameraX * 0.15)) % (W + 400);
+    var skOff = (-(cameraX * 0.15)) % W;
     var buildings = [[0,160,55],[60,100,45],[110,180,60],[175,120,50],[230,140,70],[305,90,40],
                      [350,170,55],[410,110,65],[480,150,50],[535,130,45],[585,160,70],[660,100,55]];
-    for (var bi = 0; bi < buildings.length; bi++) {
-        var bx = skOff + buildings[bi][0], by = buildings[bi][1], bw = buildings[bi][2];
-        ctx.fillStyle = '#1a2238';
-        ctx.fillRect(bx, by, bw, ROAD_Y - by);
-        // Windows
-        ctx.fillStyle = Math.random() < 0.02 ? '#ffee80' : 'rgba(255,240,100,0.25)';
-        for (var wy = by + 10; wy < ROAD_Y - 10; wy += 18) {
-            for (var wx = bx + 6; wx < bx + bw - 6; wx += 12) {
-                if (((wx + wy + frameCount * 0) % 7) > 2) {
-                    ctx.fillRect(wx, wy, 7, 9);
+    // Two copies, one screen width apart; windows lit by a fixed per-building pattern
+    for (var copy = 0; copy < 2; copy++) {
+        for (var bi = 0; bi < buildings.length; bi++) {
+            var bx = skOff + copy * W + buildings[bi][0], by = buildings[bi][1], bw = buildings[bi][2];
+            ctx.fillStyle = '#1a2238';
+            ctx.fillRect(bx, by, bw, ROAD_Y - by);
+            ctx.fillStyle = 'rgba(255,240,100,0.25)';
+            for (var wy = 10; by + wy < ROAD_Y - 10; wy += 18) {
+                for (var wx = 6; wx < bw - 6; wx += 12) {
+                    if (((wx + wy + bi * 5) % 7) > 2) ctx.fillRect(bx + wx, by + wy, 7, 9);
                 }
-            }
-        }
-    }
-    // Same buildings offset by one screen width
-    for (var bi2 = 0; bi2 < buildings.length; bi2++) {
-        var bx2 = skOff + W + buildings[bi2][0], by2 = buildings[bi2][1], bw2 = buildings[bi2][2];
-        ctx.fillStyle = '#1a2238';
-        ctx.fillRect(bx2, by2, bw2, ROAD_Y - by2);
-        ctx.fillStyle = 'rgba(255,240,100,0.25)';
-        for (var wy2 = by2 + 10; wy2 < ROAD_Y - 10; wy2 += 18) {
-            for (var wx2 = bx2 + 6; wx2 < bx2 + bw2 - 6; wx2 += 12) {
-                if (((wx2 + wy2) % 7) > 2) ctx.fillRect(wx2, wy2, 7, 9);
             }
         }
     }
@@ -1144,7 +1174,7 @@ function drawBgCity() {
 function drawBgMountain() {
     // Layer 1 (0.10x): distant snow peaks
     ctx.fillStyle = '#d0d8e8';
-    var mpOff = (-(cameraX * 0.10)) % (W + 300);
+    var mpOff = (-(cameraX * 0.10)) % W;
     var mPeaks = [[0,320],[80,200],[180,260],[300,160],[420,220],[550,150],[680,200],[800,320]];
     ctx.beginPath();
     ctx.moveTo(mpOff, ROAD_Y);
@@ -1157,8 +1187,9 @@ function drawBgMountain() {
     // Snow caps
     ctx.fillStyle = '#ffffff';
     var cappts = [[80,200],[300,160],[550,150],[680,200]];
-    for (var cp = 0; cp < cappts.length; cp++) {
-        var cpx = mpOff + cappts[cp][0], cpy = cappts[cp][1];
+    for (var cp = 0; cp < cappts.length * 2; cp++) {
+        var cpx = mpOff + (cp >= cappts.length ? W : 0) + cappts[cp % cappts.length][0];
+        var cpy = cappts[cp % cappts.length][1];
         ctx.beginPath();
         ctx.moveTo(cpx - 30, cpy + 40); ctx.lineTo(cpx, cpy); ctx.lineTo(cpx + 30, cpy + 40);
         ctx.closePath(); ctx.fill();
@@ -1327,26 +1358,7 @@ function checkObstacleCollisions() {
             var barrierTop = ROAD_Y - o.h;
             var hitX = ks + kart.w - 4 > ox + 2 && ks + 4 < ox + o.w - 2;
             var hitY = kart.y + kart.h - 4 > barrierTop && kart.y + 4 < ROAD_Y;
-            if (hitX && hitY && kart.invincible === 0) {
-                if (kart.shield) {
-                    kart.shield     = false;
-                    kart.invincible = 50;
-                    shakeFrames = 5; shakeMagnitude = 4;
-                    spawnFeathers(ks + 26, kart.y + 14);
-                    spawnSparks(ox + o.w / 2, barrierTop);
-                } else {
-                    var dmg = activeUpgrades.indexOf('tough') !== -1 ? 15 : HIT_DAMAGE;
-                    kart.hp        -= dmg;
-                    kart.invincible = HIT_INV_FRAMES;
-                    kart.dy         = Math.min(kart.dy, -3);   // small bounce
-                    shakeFrames = 10; shakeMagnitude = 7;
-                    sfxHit();
-                    spawnFeathers(ks + 26, kart.y + 14);
-                    spawnSparks(ox + o.w / 2, barrierTop);
-                    noHitRun = false;
-                    if (kart.hp <= 0) { kart.hp = 0; kart.alive = false; }
-                }
-            }
+            if (hitX && hitY) hurtKart(HIT_DAMAGE, ox + o.w / 2, barrierTop);
 
         } else if (o.type === 'pothole') {
             // Pothole bumps the kart upward and triggers a small dust puff
@@ -1765,13 +1777,13 @@ function drawDeathScreen() {
         ctx.fillText('UPGRADES', px + 22, uStartY);
         ctx.fillStyle = '#aaddff';
         for (var ui = 0; ui < activeUpgrades.length; ui++) {
-            var uDef = UPGRADES.filter(function(u){ return u.id === activeUpgrades[ui]; })[0];
+            var uDef = UPGRADE_DEFS.filter(function(u){ return u.id === activeUpgrades[ui]; })[0];
             var uName = uDef ? uDef.name : activeUpgrades[ui];
             ctx.fillText('\u2022 ' + uName, px + 22, uStartY + 14 + ui * 18);
         }
     }
 
-    if (distancePx > 0 && distancePx >= meta.bestDistance) {
+    if (newBest) {
         ctx.font = 'bold 15px Courier New';
         ctx.fillStyle = '#f39c12';
         ctx.textAlign = 'center';
@@ -1835,14 +1847,9 @@ function drawVictoryScreen() {
         for (var fi = 0; fi < 22; fi++) {
             var angle = (fi / 22) * Math.PI * 2;
             var spd   = 1.5 + Math.random() * 2.5;
-            particles.push({
-                x: fx, y: fy,
-                vx: Math.cos(angle) * spd, vy: Math.sin(angle) * spd - 1,
-                life: 55 + Math.floor(Math.random() * 30),
-                maxLife: 85,
-                color: colors[Math.floor(Math.random() * colors.length)],
-                size: 2 + Math.random() * 2, type: 'spark'
-            });
+            spawnParticle(fx, fy, Math.cos(angle) * spd, Math.sin(angle) * spd - 1,
+                55 + Math.floor(Math.random() * 30),
+                colors[Math.floor(Math.random() * colors.length)], 2 + Math.random() * 2);
         }
     }
 
@@ -2288,15 +2295,8 @@ function updateEnemies() {
                 if (e.beamTimer > 200) { e.beamActive = true; e.beamTimer = 0; }
                 if (e.beamActive && ++e.beamTimer > 55) e.beamActive = false;
                 // Beam damage when kart is directly below
-                if (e.beamActive && kart.invincible === 0 && kart.alive) {
-                    if (Math.abs(kart.worldX - e.worldX - e.w/2) < 28) {
-                        var dmgU = activeUpgrades.indexOf('tough') !== -1 ? 15 : HIT_DAMAGE;
-                        kart.hp -= dmgU; kart.invincible = HIT_INV_FRAMES;
-                        sfxHit(); noHitRun = false; shakeFrames = 8; shakeMagnitude = 6;
-                        spawnFeathers(KART_SCREEN_X + 26, kart.y + 14);
-                        if (kart.hp <= 0) { kart.hp = 0; kart.alive = false; }
-                    }
-                }
+                if (e.beamActive && Math.abs(kart.worldX - e.worldX - e.w/2) < 28)
+                    hurtKart(HIT_DAMAGE);
                 if (e.worldX + e.w < cameraX - 120) { enemies.splice(i, 1); continue; }
                 break;
 
@@ -2333,27 +2333,8 @@ function updateEnemies() {
         if (kart.dy > 1.5 && kart.y + kart.h <= e.y + e.h * 0.38 + 4) {
             e.hp = 0;
             kart.dy = -5.5; kart.state = 'air'; kart.invincible = 28;
-        } else if (kart.shield) {
-            kart.shield = false; kart.invincible = 50;
-            shakeFrames = 5; shakeMagnitude = 4;
-            spawnFeathers(ks + 26, kart.y + 14);
-            spawnSparks(sx + e.w/2, e.y + e.h/2);
         } else {
-            var dmg = activeUpgrades.indexOf('tough') !== -1 ? 15 : HIT_DAMAGE;
-            kart.hp -= dmg; kart.invincible = HIT_INV_FRAMES;
-            kart.dy = Math.min(kart.dy, -2);
-            shakeFrames = 10; shakeMagnitude = 7;
-            sfxHit(); noHitRun = false;
-            spawnFeathers(ks + 26, kart.y + 14);
-            spawnSparks(sx + e.w/2, e.y + e.h/2);
-            if (kart.hp <= 0) { kart.hp = 0; kart.alive = false; }
-        }
-        // Exhaust fire upgrade: boost blasts nearby enemies
-        if (kart.boostTimer > 12 && activeUpgrades.indexOf('exhaust_fire') !== -1) {
-            if (Math.abs(e.worldX - kart.worldX) < 90) {
-                e.hp = 0;
-                spawnExplosion(sx + e.w/2, e.y + e.h/2);
-            }
+            hurtKart(HIT_DAMAGE, sx + e.w/2, e.y + e.h/2);
         }
     }
 }
