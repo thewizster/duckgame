@@ -527,8 +527,8 @@ const ABILITY_POOL = [
     },
     {
         name:'Nitro Duck', unlock:null, paint:['#d4a010','#f0c840','#8a6a00'],
-        desc:'Start with 3 boost charges.',
-        apply:function() { kart.boostCharges = 3; }
+        desc:'Start with 2 extra boost charges.',
+        apply:function() { kart.boostCharges += 2; }
     },
     {
         name:'Rally Duck', unlock:'reach_desert', paint:['#2266cc','#4488ee','#113377'],
@@ -552,9 +552,9 @@ const ABILITY_POOL = [
     },
     {
         name:'Golden Duck', unlock:'victory', paint:['#e0b020','#fff070','#a07000'],
-        desc:'3 boosts, Roll Cage and +25 max HP. The champion\'s ride.',
+        desc:'+2 boosts, Roll Cage and +25 max HP. The champion\'s ride.',
         apply:function() {
-            kart.boostCharges = 3; kart.shield = true; activeUpgrades.push('roll_cage');
+            kart.boostCharges += 2; kart.shield = true; activeUpgrades.push('roll_cage');
             kart.maxHp += 25; kart.hp += 25;
         }
     }
@@ -568,21 +568,41 @@ function abilityUnlockedBy(achId) {
     return ABILITY_POOL.filter(function(a) { return a.unlock === achId; })[0] || null;
 }
 
+// ==================== GARAGE (permanent perks bought with banked corn) ====================
+const GARAGE_DEFS = [
+    { id:'chassis', name:'Reinforced Chassis', desc:'+10 max HP per level',                   costs:[50, 100, 180] },
+    { id:'nitro',   name:'Spare Nitro',        desc:'+1 starting boost per level',            costs:[80, 160] },
+    { id:'scoop',   name:'Corn Scoop',         desc:'+25% corn per level',                    costs:[60, 140] },
+    { id:'crew',    name:'Pit Crew Pro',       desc:'First reroll per pit stop free, cheaper repairs', costs:[120] }
+];
+
+function garageLevel(id) { return meta.garage[id] || 0; }
+
+function buyGarage(idx) {
+    var g = GARAGE_DEFS[idx];
+    if (!g) return;
+    var lvl = garageLevel(g.id);
+    if (lvl >= g.costs.length || meta.cornBank < g.costs[lvl]) return;
+    meta.cornBank -= g.costs[lvl];
+    meta.garage[g.id] = lvl + 1;
+    saveMeta();
+    sfxUpgrade();
+}
+
 // ==================== META-PROGRESSION ====================
 const META_KEY = 'duckster_meta';
 
 function loadMeta() {
-    try {
-        const raw = localStorage.getItem(META_KEY);
-        if (!raw) return { bestDistance:0, totalRuns:0, achievements:[] };
-        const m = JSON.parse(raw);
-        if (!m.achievements)                m.achievements = [];
-        if (typeof m.bestDistance !== 'number') m.bestDistance = 0;
-        if (typeof m.totalRuns    !== 'number') m.totalRuns    = 0;
-        return m;
-    } catch(e) {
-        return { bestDistance:0, totalRuns:0, achievements:[] };
-    }
+    var m = null;
+    try { m = JSON.parse(localStorage.getItem(META_KEY)); } catch(e) {}
+    m = m || {};
+    if (!m.achievements)                     m.achievements = [];
+    if (typeof m.bestDistance !== 'number')  m.bestDistance = 0;
+    if (typeof m.totalRuns    !== 'number')  m.totalRuns    = 0;
+    if (typeof m.cornBank     !== 'number')  m.cornBank     = 0;
+    if (!m.garage)                           m.garage       = {};
+    GARAGE_DEFS.forEach(function(g) { if (typeof m.garage[g.id] !== 'number') m.garage[g.id] = 0; });
+    return m;
 }
 
 function saveMeta() {
@@ -610,6 +630,9 @@ let frameCount   = 0;
 
 // Run-level state (reset each run)
 let corn            = 0;
+let cornFrac        = 0;      // fractional corn from the Corn Scoop bonus
+let rerollCost      = 15;     // pit stop reroll price; rises with each reroll
+let freeReroll      = false;  // Pit Crew Pro: this pit stop's reroll is free
 let kills           = 0;
 let distancePx      = 0;
 let runFrames       = 0;      // frames of actual racing (pauses and pit stops excluded)
@@ -1138,7 +1161,7 @@ function landKart() {
         var gain = Math.round(TRICK_CORN * n * (activeUpgrades.indexOf('big_wheels') !== -1 ? 1.5 : 1));
         var names = ['', 'BACKFLIP', 'DOUBLE FLIP', 'TRIPLE FLIP'];
         var text = (names[n] || n + 'x FLIP') + '! +' + gain + ' corn';
-        corn += gain;
+        addCorn(gain);
         if (n >= 2) {
             kart.boostCharges++;
             text += ' +BOOST';
@@ -1152,11 +1175,19 @@ function landKart() {
     kart.flips   = 0;
 }
 
+function addCorn(n) {
+    cornFrac += n * (1 + 0.25 * garageLevel('scoop'));
+    var whole = Math.floor(cornFrac);
+    corn += whole;
+    cornFrac -= whole;
+}
+
 // ==================== RUN MANAGEMENT ====================
 function startRun() {
     kart.worldX = 200; kart.y = ROAD_Y - kart.h; kart.dy = 0;
     kart.speed = BASE_SPEED; kart.state = 'ground';
-    kart.hp = 100; kart.maxHp = 100; kart.boostCharges = 1; kart.boostTimer = 0;
+    kart.maxHp = 100 + 10 * garageLevel('chassis'); kart.hp = kart.maxHp;
+    kart.boostCharges = 1 + garageLevel('nitro'); kart.boostTimer = 0;
     kart.animFrame = 0; kart.animTimer = 0; kart.invincible = 0;
     kart.shield = false; kart.airJumps = 0; kart.maxAirJumps = 0;
     kart.alive = true; kart.swiftMode = false; kart.tough = false; kart.paint = ABILITY_POOL[0].paint;
@@ -1164,7 +1195,7 @@ function startRun() {
     kart.surface = null; kart.spin = 0;
     trickHeld = false;
 
-    corn = 0; kills = 0; distancePx = 0;
+    corn = 0; cornFrac = 0; rerollCost = 15; kills = 0; distancePx = 0;
     currentBiomeIdx = 0; lastUpgradePx = 0;
     activeUpgrades = []; noHitRun = true; upgradesTaken = 0; shieldBrokenAt = -1;
     toasts = []; shakeFrames = 0; shakeMagnitude = 0;
@@ -1188,6 +1219,7 @@ function startRun() {
 
 function recordRun() {
     unlockAchievement('first_run');
+    meta.cornBank += corn;
     newBest = distancePx > meta.bestDistance;
     if (newBest) meta.bestDistance = distancePx;
     meta.totalRuns++;
@@ -1203,13 +1235,16 @@ function gameOver() {
 }
 
 // ==================== UPGRADE SELECTION ====================
-function triggerUpgrade() {
-    var pool = UPGRADE_DEFS.filter(function(u) {
+function upgradePool() {
+    return shuffleArray(UPGRADE_DEFS.filter(function(u) {
         if (u.id === 'roll_cage') return !kart.shield;
         return u.stack || activeUpgrades.indexOf(u.id) === -1;
-    });
-    shuffleArray(pool);
-    upgradeChoices  = pool.slice(0, 3);
+    }));
+}
+
+function triggerUpgrade() {
+    upgradeChoices  = upgradePool().slice(0, 3);
+    freeReroll      = garageLevel('crew') > 0;
     gameState       = 'UPGRADE';
     document.getElementById('hud').style.display = 'none';
 }
@@ -1230,6 +1265,26 @@ function applyUpgrade(idx) {
     gameState = 'PLAYING';
     document.getElementById('hud').style.display = 'flex';
     updateHUD();
+}
+
+function repairCost() { return garageLevel('crew') > 0 ? 12 : 20; }
+
+function rerollUpgrades() {
+    if (!freeReroll && corn < rerollCost) return;
+    if (freeReroll) freeReroll = false;
+    else { corn -= rerollCost; rerollCost += 10; }
+    // Fresh cards first, topped up from the current ones if the pool runs short
+    var pool  = upgradePool();
+    var fresh = pool.filter(function(u) { return upgradeChoices.indexOf(u) === -1; });
+    upgradeChoices = fresh.concat(pool.filter(function(u) { return fresh.indexOf(u) === -1; })).slice(0, 3);
+    sfxCollect();
+}
+
+function repairKart() {
+    if (corn < repairCost() || kart.hp >= kart.maxHp) return;
+    corn -= repairCost();
+    kart.hp = Math.min(kart.maxHp, kart.hp + 40);
+    sfxHpRegen();
 }
 
 // ==================== ABILITY SELECTION ====================
@@ -1909,14 +1964,15 @@ function drawTitleScreen() {
     ctx.font = '13px Courier New';
     ctx.fillStyle = '#8899aa';
     var best = meta.bestDistance > 0 ? Math.floor(meta.bestDistance / 10) + 'm' : '---';
-    ctx.fillText('BEST: ' + best + '   RUNS: ' + meta.totalRuns, W/2, 196);
+    ctx.fillText('BEST: ' + best + '   RUNS: ' + meta.totalRuns + '   CORN BANK: ' + meta.cornBank, W/2, 196);
     ctx.fillStyle = '#556677';
     ctx.fillText(meta.achievements.length + ' / ' + ACHIEVEMENT_DEFS.length + ' achievements   \u00B7   ' +
         unlockedAbilities().length + ' / ' + ABILITY_POOL.length + ' karts', W/2, 216);
     ctx.textAlign = 'left';
 
-    drawButton('[ENTER] START RACE',  W/2 - 214, 236, 204, 36, goToAbilityPick);
-    drawButton('[A] ACHIEVEMENTS',    W/2 + 10,  236, 204, 36, function() { openAchievements('TITLE'); });
+    drawButton('[ENTER] START',    W/2 - 290, 236, 180, 36, goToAbilityPick);
+    drawButton('[G] GARAGE',       W/2 - 90,  236, 180, 36, function() { gameState = 'GARAGE'; });
+    drawButton('[A] ACHIEVEMENTS', W/2 + 110, 236, 180, 36, function() { openAchievements('TITLE'); });
 
     // Controls
     ctx.textAlign = 'center';
@@ -2050,8 +2106,62 @@ function drawUpgradeScreen() {
     ctx.font = '13px Courier New';
     ctx.fillStyle = '#555566';
     ctx.textAlign = 'center';
-    ctx.fillText('Keys 1 / 2 / 3  or  click a card', W/2, 102 + 190 + 28);
+    ctx.fillText('Keys 1 / 2 / 3  or  click a card', W/2, 102 + 190 + 24);
+
+    // Corn shop
+    var rLabel = freeReroll ? '[R] REROLL  FREE' : '[R] REROLL  ' + rerollCost + ' CORN';
+    drawButton(rLabel, W/2 - 254, 334, 244, 36, rerollUpgrades, !freeReroll && corn < rerollCost);
+    drawButton('[H] REPAIR +40HP  ' + repairCost() + ' CORN', W/2 + 10, 334, 244, 36, repairKart,
+        corn < repairCost() || kart.hp >= kart.maxHp);
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 14px Courier New';
+    ctx.fillStyle = '#ffe066';
+    ctx.fillText('CORN: ' + corn + '     HP: ' + Math.ceil(kart.hp) + ' / ' + kart.maxHp, W/2, 398);
     ctx.textAlign = 'left';
+}
+
+// ==================== DRAW: GARAGE ====================
+function drawGarageScreen() {
+    ctx.fillStyle = '#120c0a';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 30px Courier New';
+    ctx.fillStyle = '#ff8800';
+    ctx.fillText('GARAGE', W / 2, 48);
+    ctx.font = 'bold 15px Courier New';
+    ctx.fillStyle = '#ffe066';
+    ctx.fillText('CORN BANK: ' + meta.cornBank, W / 2, 76);
+    ctx.font = '12px Courier New';
+    ctx.fillStyle = '#887766';
+    ctx.fillText('Corn from every race is banked here. Perks are permanent.', W / 2, 96);
+
+    for (var i = 0; i < GARAGE_DEFS.length; i++) {
+        var g   = GARAGE_DEFS[i];
+        var lvl = garageLevel(g.id);
+        var max = g.costs.length;
+        var y   = 114 + i * 76;
+        ctx.fillStyle = 'rgba(40,26,14,0.95)';
+        ctx.fillRect(110, y, 580, 64);
+        ctx.strokeStyle = lvl >= max ? '#ff8800' : '#4a3a2a';
+        ctx.strokeRect(110.5, y + 0.5, 579, 63);
+
+        ctx.textAlign = 'left';
+        ctx.font = 'bold 15px Courier New';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(g.name, 128, y + 26);
+        ctx.font = '12px Courier New';
+        ctx.fillStyle = '#bbaa99';
+        ctx.fillText(g.desc, 128, y + 46);
+        for (var p = 0; p < max; p++) {
+            ctx.fillStyle = p < lvl ? '#ff8800' : '#3a2e24';
+            ctx.fillRect(400 + p * 18, y + 18, 12, 12);
+        }
+        var label = lvl >= max ? 'MAXED' : '[' + (i + 1) + '] BUY  ' + g.costs[lvl];
+        drawButton(label, 500, y + 14, 176, 36, buyGarage.bind(null, i),
+            lvl >= max || meta.cornBank < g.costs[lvl]);
+    }
+    ctx.textAlign = 'left';
+    drawButton('[ESC] BACK', W / 2 - 90, H - 48, 180, 32, function() { gameState = 'TITLE'; });
 }
 
 // ==================== DRAW: DEATH SCREEN (WIPEOUT) ====================
@@ -2069,7 +2179,7 @@ function drawRunStats(py, accent) {
         ['TIME',     formatTime(runFrames * 1000 / 60)],
         ['ZONE',     BIOMES[currentBiomeIdx].name],
         ['ENEMIES',  kills + ''],
-        ['CORN',     corn  + '']
+        ['CORN',     corn + '  \u2192  bank ' + meta.cornBank]
     ];
     ctx.font = '14px Courier New';
     for (var ri = 0; ri < rows.length; ri++) {
@@ -2200,17 +2310,18 @@ function drawToasts() {
 // ==================== UI BUTTONS ====================
 var uiButtons = []; // rebuilt every frame by drawButton(); clicks are hit-tested against it
 
-function drawButton(label, x, y, w, h, action) {
-    uiButtons.push({ x:x, y:y, w:w, h:h, action:action });
+// disabled buttons are drawn greyed out and swallow clicks
+function drawButton(label, x, y, w, h, action, disabled) {
+    uiButtons.push({ x:x, y:y, w:w, h:h, action:disabled ? function() {} : action });
     var pulse = 0.5 + 0.5 * Math.sin(frameCount * 0.08);
-    ctx.fillStyle = mouseIn({ x:x, y:y, w:w, h:h }) ? 'rgba(80,42,5,0.95)' : 'rgba(30,20,40,0.92)';
+    ctx.fillStyle = !disabled && mouseIn({ x:x, y:y, w:w, h:h }) ? 'rgba(80,42,5,0.95)' : 'rgba(30,20,40,0.92)';
     ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = 'rgba(255,136,0,' + (0.55 + pulse * 0.45) + ')';
+    ctx.strokeStyle = disabled ? '#444455' : 'rgba(255,136,0,' + (0.55 + pulse * 0.45) + ')';
     ctx.lineWidth = 2;
     ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
     ctx.lineWidth = 1;
     ctx.font = 'bold 14px Courier New';
-    ctx.fillStyle = '#ffcc66';
+    ctx.fillStyle = disabled ? '#666677' : '#ffcc66';
     ctx.textAlign = 'center';
     ctx.fillText(label, x + w / 2, y + h / 2 + 5);
     ctx.textAlign = 'left';
@@ -2376,7 +2487,15 @@ document.addEventListener('keydown', function(e) {
 
     if (gameState === 'TITLE') {
         if (e.code === 'KeyA') openAchievements('TITLE');
+        else if (e.code === 'KeyG') gameState = 'GARAGE';
         else goToAbilityPick();
+        return;
+    }
+
+    if (gameState === 'GARAGE') {
+        var gi = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code);
+        if (gi !== -1) buyGarage(gi);
+        else if (e.code === 'Escape' || e.code === 'KeyG' || e.code === 'Backspace') gameState = 'TITLE';
         return;
     }
 
@@ -2403,6 +2522,8 @@ document.addEventListener('keydown', function(e) {
         if (e.code === 'Digit1') applyUpgrade(0);
         if (e.code === 'Digit2') applyUpgrade(1);
         if (e.code === 'Digit3') applyUpgrade(2);
+        if (e.code === 'KeyR')   rerollUpgrades();
+        if (e.code === 'KeyH')   repairKart();
         return;
     }
 
@@ -2496,6 +2617,9 @@ function loop() {
 
     } else if (gameState === 'ACHIEVEMENTS') {
         drawAchievementsScreen();
+
+    } else if (gameState === 'GARAGE') {
+        drawGarageScreen();
 
     } else if (gameState === 'PLAYING' || gameState === 'UPGRADE' || gameState === 'PAUSED') {
         if (gameState !== 'PAUSED') {
@@ -3202,8 +3326,8 @@ function updateCollectibles() {
             c.collected = true;
             spawnCollectFX(c.worldX - cameraX, c.y);
             sfxCollect();
-            if      (c.type === 'corn')       { corn++; }
-            else if (c.type === 'breadcrumb') { corn += 3; }
+            if      (c.type === 'corn')       { addCorn(1); }
+            else if (c.type === 'breadcrumb') { addCorn(3); }
             else if (c.type === 'fuel_can')   { kart.boostCharges++; updateHUD(); }
             else if (c.type === 'heart')      { kart.hp = Math.min(kart.maxHp, kart.hp + 30); updateHUD(); }
         }
