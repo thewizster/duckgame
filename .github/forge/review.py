@@ -1,10 +1,14 @@
 """Forge PR review: send the PR diff to Claude and post findings as a PR review."""
-import json, os, re, subprocess, sys, urllib.request
+import json, os, re, socket, subprocess, sys, time, urllib.error, urllib.request
 
 MARKER = "<!-- forge-review -->"
 API_URL = "https://api.anthropic.com/v1/messages"
 MAX_DIFF_CHARS = 150_000
 DEFAULT_MODEL = "claude-sonnet-4-5"
+REQUEST_TIMEOUT = 180            # seconds per attempt (connect + read)
+RETRY_DELAYS = (5, 15)           # backoff between attempts on transient failures
+RETRY_STATUS = {408, 409, 429, 500, 502, 503, 504, 529}
+ERROR_BODY_CHARS = 500
 
 
 SECRET_ENV = "ANTHROPIC_API_KEY"
@@ -50,18 +54,55 @@ def build_request(diff, prompt, model, api_key, truncated=False):
                  "content-type": "application/json"})
 
 
+def _transient(e):
+    if isinstance(e, urllib.error.HTTPError):
+        return e.code in RETRY_STATUS
+    return isinstance(e, (urllib.error.URLError, TimeoutError, socket.timeout, ConnectionError))
+
+
+def _describe(e):
+    if isinstance(e, urllib.error.HTTPError):
+        try:
+            body = e.read(ERROR_BODY_CHARS * 4).decode("utf-8", "replace")
+        except Exception:
+            body = ""
+        body = " ".join(body.split())[:ERROR_BODY_CHARS]
+        return f"HTTP {e.code} {e.reason}: {body}".rstrip(": ")
+    if isinstance(e, urllib.error.URLError):
+        return f"connection error: {e.reason}"
+    if isinstance(e, (TimeoutError, socket.timeout)):
+        return f"request timed out after {REQUEST_TIMEOUT}s ({e})"
+    return f"{type(e).__name__}: {e}"
+
+
 def call_model(req, api_key, opener=urllib.request.urlopen):
     """POST the request and return the model's text. Raises ForgeError with the key scrubbed.
 
-    `from None` drops the original exception chain so no traceback can carry the
-    request headers (and the key) into the CI log.
+    Transient failures (429/5xx/529, timeouts, connection errors) are retried with
+    backoff; other HTTP errors fail fast. `from None` drops the original exception
+    chain so no traceback can carry the request headers (and the key) into the log.
     """
+    attempts = len(RETRY_DELAYS) + 1
+    for attempt in range(1, attempts + 1):
+        try:
+            with opener(req, timeout=REQUEST_TIMEOUT) as r:
+                raw = r.read()
+            break
+        except Exception as e:
+            msg = redact(f"Anthropic API request failed (attempt {attempt}/{attempts}): {_describe(e)}", api_key)
+            if attempt < attempts and _transient(e):
+                print(msg + " Retrying.", file=sys.stderr)
+                time.sleep(RETRY_DELAYS[attempt - 1])
+                continue
+            raise ForgeError(msg) from None
     try:
-        with opener(req, timeout=180) as r:
-            raw = r.read()
-    except Exception as e:
-        raise ForgeError(redact(f"Anthropic API request failed: {type(e).__name__}: {e}", api_key)) from None
-    return "".join(b.get("text", "") for b in json.loads(raw)["content"])
+        data = json.loads(raw)
+    except ValueError:
+        raise ForgeError(redact(f"Anthropic API reply is not valid JSON: {raw[:200]!r}", api_key)) from None
+    content = data.get("content") if isinstance(data, dict) else None
+    if not isinstance(content, list) or not all(isinstance(b, dict) for b in content):
+        raise ForgeError(redact(f"Anthropic API reply has an unexpected shape: {str(data)[:200]}", api_key))
+    return "".join(str(b.get("text", "")) for b in content)
 
 
 def parse_model_output(text):

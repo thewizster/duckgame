@@ -1,6 +1,6 @@
 """Blocker: the Anthropic API key must never reach logs, tracebacks or exception text."""
 import contextlib, io, traceback, unittest, urllib.error
-from helpers import FAKE_KEY, FakeGh, FakeOpener, review_env
+from helpers import FAKE_KEY, NoSleep, FakeGh, FakeOpener, review_env
 import review
 
 
@@ -17,7 +17,7 @@ def run_main_capture(opener):
     return code, out.getvalue() + err.getvalue()
 
 
-class KeyNeverLeaks(unittest.TestCase):
+class KeyNeverLeaks(NoSleep, unittest.TestCase):
     def assert_no_leak(self, exc):
         code, log = run_main_capture(FakeOpener(exc=exc))
         self.assertNotIn(FAKE_KEY, log)

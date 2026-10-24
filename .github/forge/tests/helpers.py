@@ -65,3 +65,19 @@ class FakeGh:
 
     def posted_reviews(self):
         return [json.loads(i) for a, i in self.calls if a[0] == "api" and "reviews" in a[1]]
+
+
+class NoSleep:
+    """Mixin for TestCase: replaces time.sleep in review.py so retry backoff is instant."""
+
+    def setUp(self):
+        import review
+        self.sleeps = []
+        self._real_sleep = review.time.sleep
+        review.time.sleep = self.sleeps.append
+        super().setUp()
+
+    def tearDown(self):
+        import review
+        review.time.sleep = self._real_sleep
+        super().tearDown()
