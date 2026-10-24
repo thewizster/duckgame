@@ -13,7 +13,8 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            min-height: 100vh;
+            height: 100vh;
+            padding-bottom: 30px; /* room for the "choose a game" link */
             font-family: 'Courier New', Courier, monospace;
             overflow: hidden;
             user-select: none;
@@ -21,6 +22,8 @@
 
         #gameContainer {
             position: relative;
+            flex-shrink: 0;
+            transform-origin: center center;
             box-shadow: 0 0 60px rgba(255, 160, 40, 0.4);
         }
 
@@ -74,12 +77,34 @@
         }
 
         #upgradeIcons {
-            color: #aaddff;
-            font-size: 11px;
-            text-shadow: 1px 1px 0 #000;
-            max-width: 140px;
-            line-height: 1.4;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 3px;
+            max-width: 172px;
         }
+
+        .chip {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            padding: 1px 5px 1px 2px;
+            background: rgba(0,0,0,0.55);
+            border: 1px solid;
+            border-radius: 3px;
+            color: #ffffff;
+            font-size: 10px;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        .chip img {
+            width: 16px;
+            height: 16px;
+            image-rendering: pixelated;
+        }
+
+        .chip.spent { opacity: 0.35; }
 
         #hudTopCenter {
             position: absolute;
@@ -154,8 +179,25 @@
         #jumpBtn  { left: 12px; }
         #boostBtn { right: 12px; }
 
+        #pauseBtn {
+            position: absolute;
+            top: 56px; right: 10px;
+            width: 44px; height: 36px;
+            display: none;
+            pointer-events: auto;
+            background: rgba(0,0,0,0.35);
+            border: 2px solid rgba(255,255,255,0.4);
+            border-radius: 8px;
+            color: #ffffff;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            font-weight: bold;
+            -webkit-tap-highlight-color: transparent;
+        }
+
         @media (pointer: coarse) {
             #touchControls { display: block; }
+            #pauseBtn      { display: block; }
         }
     </style>
 </head>
@@ -177,6 +219,7 @@
             <div id="cornDisplay">&#x1F33D; 0</div>
             <div id="killDisplay">&#x1F480; 0</div>
         </div>
+        <button id="pauseBtn">II</button>
     </div>
 
     <div id="touchControls">
@@ -383,16 +426,58 @@ const BIOMES = [
 
 // ==================== UPGRADE DEFINITIONS ====================
 const UPGRADE_DEFS = [
-    { id:'double_jump',    name:'Suspension Springs', desc:'Jump once more while airborne',             icon:'\u2191\u2191', color:'#3498db' },
-    { id:'roll_cage',      name:'Roll Cage',          desc:'Absorb one hit; recharges 400m after breaking', icon:'\u25A1', color:'#1abc9c' },
-    { id:'turbo_engine',   name:'Turbo Engine',       desc:'+0.6 max speed permanently',               icon:'>>',           color:'#e67e22' },
-    { id:'off_road_tires', name:'Off-Road Tires',     desc:'Ramp launches are 35% higher',             icon:'/\\/',         color:'#27ae60' },
-    { id:'extra_boost',    name:'Nitro Tank',         desc:'+1 boost charge',                          icon:'+N',           color:'#f1c40f', stack:true },
-    { id:'magnet',         name:'Magnet Bumper',      desc:'Auto-collect items within 130px',          icon:'(())',         color:'#9b59b6' },
-    { id:'exhaust_fire',   name:'Exhaust Fire',       desc:'Boost use blasts nearby enemies',          icon:'><',           color:'#e74c3c' },
-    { id:'rocket_boost',   name:'Rocket Boost',       desc:'Boost speed +2 and duration +50%',         icon:'/\\',          color:'#16a085' },
-    { id:'hp_up',          name:'Duck Armor',         desc:'+25 max HP and restore 25 HP',             icon:'<3',           color:'#c0392b', stack:true }
+    { id:'double_jump',    name:'Suspension Springs', short:'SPRING', desc:'Jump once more while airborne',              color:'#3498db' },
+    { id:'roll_cage',      name:'Roll Cage',          short:'CAGE',   desc:'Absorb one hit; recharges 400m after breaking', color:'#1abc9c' },
+    { id:'turbo_engine',   name:'Turbo Engine',       short:'TURBO',  desc:'+0.6 max speed permanently',                color:'#e67e22' },
+    { id:'off_road_tires', name:'Off-Road Tires',     short:'TIRES',  desc:'Ramp launches are 35% higher',              color:'#27ae60' },
+    { id:'extra_boost',    name:'Nitro Tank',         short:'NITRO',  desc:'+1 boost charge',                           color:'#f1c40f', stack:true },
+    { id:'magnet',         name:'Magnet Bumper',      short:'MAGNET', desc:'Auto-collect items within 130px',           color:'#9b59b6' },
+    { id:'exhaust_fire',   name:'Exhaust Fire',       short:'FIRE',   desc:'Boost use blasts nearby enemies',           color:'#e74c3c' },
+    { id:'rocket_boost',   name:'Rocket Boost',       short:'ROCKET', desc:'Boost speed +2 and duration +50%',          color:'#16a085' },
+    { id:'hp_up',          name:'Duck Armor',         short:'ARMOR',  desc:'+25 max HP and restore 25 HP',              color:'#c0392b', stack:true }
 ];
+
+// ==================== UPGRADE ICONS ====================
+// 8x8 pixel maps; '.' is transparent, other letters index ICON_PALETTE
+var ICON_PALETTE = {
+    W:'#ffffff', Y:'#ffd23f', O:'#ff8a1f', R:'#e5383b', B:'#2f7de1', L:'#9fdcff',
+    T:'#2ec4a6', S:'#b8c2cc', K:'#333344', G:'#3fbf5a', P:'#b06ad8'
+};
+var ICON_ART = {
+    double_jump:    ['...WW...','..WWWW..','.WW..WW.','...BB...','..BBBB..','.BB..BB.','B......B','........'],
+    roll_cage:      ['TTTTTTT.','T..T..T.','T..T..T.','TTTTTTT.','T..T..T.','T..T..T.','TTTTTTT.','........'],
+    turbo_engine:   ['........','OO..OO..','.OO..OO.','..OO..OO','..OO..OO','.OO..OO.','OO..OO..','........'],
+    off_road_tires: ['..KKKK..','.KGKKGK.','KKSSSSKK','KGS..SGK','KGS..SGK','KKSSSSKK','.KGKKGK.','..KKKK..'],
+    extra_boost:    ['...SS...','..RRRR..','.RRRRRR.','.RRWWRR.','.RRWRRR.','.RRWWRR.','.RRRRRR.','..RRRR..'],
+    magnet:         ['.SS..SS.','.RR..RR.','.RR..RR.','.RR..RR.','.RR..RR.','.RRRRRR.','..RRRR..','........'],
+    exhaust_fire:   ['...O....','..OO..O.','..OYO.O.','.OOYOOO.','.OYYYOO.','OOYYYYOO','.OOYYOO.','..OOOO..'],
+    rocket_boost:   ['...WW...','..WLLW..','..WLLW..','..WWWW..','.TWWWWT.','.T.OO.T.','...YY...','....Y...'],
+    hp_up:          ['.RR.RR..','RWRRRRR.','RRRRRRR.','RRRRRRR.','.RRRRR..','..RRR...','...R....','........'],
+    tough:          ['SSSSSSS.','SSSWSSS.','SSWWWSS.','SSSWSSS.','.SSSSS..','..SSS...','...S....','........']
+};
+
+function drawPixelIcon(art, x, y, px, c) {
+    c = c || ctx;
+    for (var r = 0; r < art.length; r++) {
+        for (var k = 0; k < art[r].length; k++) {
+            var col = ICON_PALETTE[art[r][k]];
+            if (!col) continue;
+            c.fillStyle = col;
+            c.fillRect(x + k * px, y + r * px, px, px);
+        }
+    }
+}
+
+// Pre-render each icon to a data URL so the HTML HUD can show it as an <img>
+var ICON_URLS = {};
+(function() {
+    for (var id in ICON_ART) {
+        var cv = document.createElement('canvas');
+        cv.width = 16; cv.height = 16;
+        drawPixelIcon(ICON_ART[id], 0, 0, 2, cv.getContext('2d'));
+        ICON_URLS[id] = cv.toDataURL();
+    }
+})();
 
 // ==================== ACHIEVEMENT DEFINITIONS ====================
 const ACHIEVEMENT_DEFS = [
@@ -410,33 +495,55 @@ const ACHIEVEMENT_DEFS = [
 ];
 
 // ==================== STARTING ABILITY POOL ====================
+// paint: [body, highlight, shadow] for the kart chassis
 const ABILITY_POOL = [
     {
-        name: 'Speed Demon',
-        desc: 'Start with +0.8 base speed and slightly lower gravity.',
-        apply: function() { kart.speed = BASE_SPEED + 0.8; kart.swiftMode = true; }
+        name:'Speed Demon', unlock:null, paint:['#cc2211','#ee4433','#881100'],
+        desc:'Start with +0.8 base speed and slightly lower gravity.',
+        apply:function() { kart.speed = BASE_SPEED + 0.8; kart.swiftMode = true; }
     },
     {
-        name: 'Tank Duck',
-        desc: '+25 max HP. Take only 15 damage per hit.',
-        apply: function() { kart.maxHp += 25; kart.hp += 25; kart.tough = true; }
+        name:'Tank Duck', unlock:null, paint:['#4a6a3a','#6a8a5a','#2a4020'],
+        desc:'+25 max HP. Take only 15 damage per hit.',
+        apply:function() { kart.maxHp += 25; kart.hp += 25; kart.tough = true; }
     },
     {
-        name: 'Nitro Duck',
-        desc: 'Start with 3 boost charges.',
-        apply: function() { kart.boostCharges = 3; }
+        name:'Nitro Duck', unlock:null, paint:['#d4a010','#f0c840','#8a6a00'],
+        desc:'Start with 3 boost charges.',
+        apply:function() { kart.boostCharges = 3; }
     },
     {
-        name: 'Rally Duck',
-        desc: 'Start with Suspension Springs (double jump) active.',
-        apply: function() { kart.maxAirJumps = 1; activeUpgrades.push('double_jump'); }
+        name:'Rally Duck', unlock:'reach_desert', paint:['#2266cc','#4488ee','#113377'],
+        desc:'Start with Suspension Springs (double jump) active.',
+        apply:function() { kart.maxAirJumps = 1; activeUpgrades.push('double_jump'); }
     },
     {
-        name: 'Mechanic Duck',
-        desc: 'Start with Roll Cage shield and Magnet Bumper active.',
-        apply: function() { kart.shield = true; activeUpgrades.push('roll_cage'); activeUpgrades.push('magnet'); }
+        name:'Mechanic Duck', unlock:'reach_city', paint:['#777788','#9999aa','#444455'],
+        desc:'Start with Roll Cage shield and Magnet Bumper active.',
+        apply:function() { kart.shield = true; activeUpgrades.push('roll_cage', 'magnet'); }
+    },
+    {
+        name:'Rocket Duck', unlock:'reach_mountain', paint:['#16a085','#2ed8b0','#0a5a48'],
+        desc:'Start with Rocket Boost and Exhaust Fire.',
+        apply:function() { activeUpgrades.push('rocket_boost', 'exhaust_fire'); }
+    },
+    {
+        name:'Golden Duck', unlock:'victory', paint:['#e0b020','#fff070','#a07000'],
+        desc:'3 boosts, Roll Cage and +25 max HP. The champion\'s ride.',
+        apply:function() {
+            kart.boostCharges = 3; kart.shield = true; activeUpgrades.push('roll_cage');
+            kart.maxHp += 25; kart.hp += 25;
+        }
     }
 ];
+
+function unlockedAbilities() {
+    return ABILITY_POOL.filter(function(a) { return !a.unlock || hasAchievement(a.unlock); });
+}
+
+function abilityUnlockedBy(achId) {
+    return ABILITY_POOL.filter(function(a) { return a.unlock === achId; })[0] || null;
+}
 
 // ==================== META-PROGRESSION ====================
 const META_KEY = 'duckster_meta';
@@ -467,6 +574,8 @@ function unlockAchievement(id) {
     saveMeta();
     const def = ACHIEVEMENT_DEFS.filter(function(a){ return a.id === id; })[0];
     if (def) toasts.push({ text:'ACHIEVEMENT: ' + def.name, timer:220 });
+    var ab = abilityUnlockedBy(id);
+    if (ab) toasts.push({ text:'NEW KART UNLOCKED: ' + ab.name, timer:260 });
 }
 
 let meta = loadMeta();
@@ -480,7 +589,8 @@ let frameCount   = 0;
 let corn            = 0;
 let kills           = 0;
 let distancePx      = 0;
-let runStartTime    = 0;
+let runFrames       = 0;      // frames of actual racing (pauses and pit stops excluded)
+let deathTimer      = 0;      // frames left in the crash animation before the death screen
 let currentBiomeIdx = 0;
 let lastUpgradePx   = 0;
 let activeUpgrades  = [];
@@ -497,9 +607,7 @@ let toasts = [];
 
 // Upgrade / ability selection
 let upgradeChoices  = [];
-let upgradeSelected = -1;
 let abilityChoices  = [];
-let abilitySelected = -1;
 
 // Stage 4: polish state
 let biomeFlash        = 0;      // frames of biome-transition overlay remaining
@@ -525,7 +633,8 @@ const kart = {
     airJumps: 0, maxAirJumps: 0,
     alive: true,
     swiftMode: false,
-    tough: false
+    tough: false,
+    paint: ABILITY_POOL[0].paint
 };
 
 // World object arrays (populated in Stage 2 & 3)
@@ -724,23 +833,54 @@ function updateHUD() {
     hpEl.style.width      = pct + '%';
     hpEl.style.background = pct > 60 ? '#2ecc71' : pct > 30 ? '#f1c40f' : '#e74c3c';
 
-    var boosts = '';
-    for (var i = 0; i < kart.boostCharges; i++) boosts += '\u26A1';
-    if (kart.boostTimer > 0) boosts += '\u25BA';
-    document.getElementById('boostDisplay').textContent  = boosts || '\u25CB';
+    var n = kart.boostCharges, boosts = '';
+    if (n > 5) boosts = '\u26A1 x' + n;
+    else for (var i = 0; i < n; i++) boosts += '\u26A1';
+    if (kart.boostTimer > 0) boosts += ' \u25BA';
+    document.getElementById('boostDisplay').textContent    = 'BOOST ' + (boosts || '0');
     document.getElementById('distanceDisplay').textContent = distMeters() + 'm';
-    document.getElementById('biomeDisplay').textContent   = BIOMES[currentBiomeIdx].name;
-    document.getElementById('cornDisplay').textContent    = '\uD83C\uDF3D ' + corn;
-    document.getElementById('killDisplay').textContent    = '\uD83D\uDC80 ' + kills;
+    document.getElementById('biomeDisplay').textContent    = BIOMES[currentBiomeIdx].name;
+    document.getElementById('cornDisplay').textContent     = '\uD83C\uDF3D ' + corn;
+    document.getElementById('killDisplay').textContent     = '\uD83D\uDC80 ' + kills;
 
-    var icons = '';
+    updateUpgradeChips();
+}
+
+var hudChipKey = null;
+
+function updateUpgradeChips() {
+    var chips = [];
+    if (kart.tough) chips.push({ id:'tough', label:'TOUGH', color:'#b8c2cc' });
     for (var ui = 0; ui < activeUpgrades.length; ui++) {
-        var def = null;
-        for (var di = 0; di < UPGRADE_DEFS.length; di++)
-            if (UPGRADE_DEFS[di].id === activeUpgrades[ui]) { def = UPGRADE_DEFS[di]; break; }
-        if (def) icons += def.icon + ' ';
+        var def = upgradeDef(activeUpgrades[ui]);
+        if (def) chips.push({ id:def.id, label:def.short, color:def.color,
+                              spent: def.id === 'roll_cage' && !kart.shield });
     }
-    document.getElementById('upgradeIcons').textContent = icons;
+
+    // updateHUD runs every frame, so only touch the DOM when the set changes
+    var key = chips.map(function(c) { return c.id + (c.spent ? '*' : ''); }).join(',');
+    if (key === hudChipKey) return;
+    hudChipKey = key;
+
+    var box = document.getElementById('upgradeIcons');
+    while (box.firstChild) box.removeChild(box.firstChild);
+    for (var ci = 0; ci < chips.length; ci++) {
+        var c  = chips[ci];
+        var el = document.createElement('span');
+        el.className = 'chip' + (c.spent ? ' spent' : '');
+        el.style.borderColor = c.color;
+        var img = document.createElement('img');
+        img.src = ICON_URLS[c.id];
+        img.alt = '';
+        el.appendChild(img);
+        el.appendChild(document.createTextNode(c.label));
+        box.appendChild(el);
+    }
+}
+
+function upgradeDef(id) {
+    for (var i = 0; i < UPGRADE_DEFS.length; i++) if (UPGRADE_DEFS[i].id === id) return UPGRADE_DEFS[i];
+    return null;
 }
 
 // ==================== BIOME TRANSITION ====================
@@ -816,7 +956,11 @@ function hurtKart(amount, fxX, fxY) {
 }
 
 function updatePhysics() {
-    if (isDying) return;
+    if (isDying) {
+        if (--deathTimer <= 0) gameOver();
+        return;
+    }
+    runFrames++;
 
     // Speed ramp-up over distance
     var maxSpd = MAX_SPEED + (activeUpgrades.indexOf('turbo_engine') !== -1 ? 0.6 : 0);
@@ -896,9 +1040,9 @@ function updatePhysics() {
 
     // Death check
     if (kart.hp <= 0 || !kart.alive) {
-        kart.hp = 0; kart.alive = false; isDying = true;
+        kart.hp = 0; kart.alive = false; isDying = true; deathTimer = 55;
         sfxDie(); stopMusic();
-        setTimeout(gameOver, 900);
+        spawnExplosion(KART_SCREEN_X + kart.w / 2, kart.y + kart.h / 2);
         return;
     }
 
@@ -923,13 +1067,13 @@ function startRun() {
     kart.hp = 100; kart.maxHp = 100; kart.boostCharges = 1; kart.boostTimer = 0;
     kart.animFrame = 0; kart.animTimer = 0; kart.invincible = 0;
     kart.shield = false; kart.airJumps = 0; kart.maxAirJumps = 0;
-    kart.alive = true; kart.swiftMode = false; kart.tough = false;
+    kart.alive = true; kart.swiftMode = false; kart.tough = false; kart.paint = ABILITY_POOL[0].paint;
 
     corn = 0; kills = 0; distancePx = 0;
     currentBiomeIdx = 0; lastUpgradePx = 0;
     activeUpgrades = []; noHitRun = true; upgradesTaken = 0; shieldBrokenAt = -1;
     toasts = []; shakeFrames = 0; shakeMagnitude = 0;
-    isDying = false; runStartTime = Date.now(); frameCount = 0;
+    isDying = false; runFrames = 0; deathTimer = 0; frameCount = 0;
     biomeFlash = 0; nextMilestoneIdx = 0; hpRegenTimer = 0; lastVictoryFirework = 0; victoryInputLock = 0;
 
     obstacles = []; enemies = []; collectibles = [];
@@ -970,8 +1114,8 @@ function triggerUpgrade() {
     });
     shuffleArray(pool);
     upgradeChoices  = pool.slice(0, 3);
-    upgradeSelected = -1;
     gameState       = 'UPGRADE';
+    document.getElementById('hud').style.display = 'none';
 }
 
 function applyUpgrade(idx) {
@@ -988,6 +1132,7 @@ function applyUpgrade(idx) {
     sfxUpgrade();
     checkAchievements();
     gameState = 'PLAYING';
+    document.getElementById('hud').style.display = 'flex';
     updateHUD();
 }
 
@@ -996,6 +1141,7 @@ function selectAbility(idx) {
     if (!abilityChoices[idx]) return;
     startRun();
     abilityChoices[idx].apply();
+    kart.paint = abilityChoices[idx].paint;
     updateHUD();
 }
 
@@ -1432,7 +1578,9 @@ function drawObstacles() {
 }
 
 // ==================== DRAW: KART SPRITE ====================
-function drawKart(x, y, animFrame, invincible, shield) {
+// paint and groundY are optional (used for previews away from the road)
+function drawKart(x, y, animFrame, invincible, shield, paint, groundY) {
+    groundY = groundY || ROAD_Y;
     ctx.save();
     if (invincible > 0 && Math.floor(invincible / 5) % 2 === 0) ctx.globalAlpha = 0.45;
 
@@ -1441,20 +1589,21 @@ function drawKart(x, y, animFrame, invincible, shield) {
     y += bounce;
 
     // ── Shadow — shrinks & fades as kart rises ──
-    var groundDist = Math.max(0, ROAD_Y - (y + kart.h)); // pixels above road
+    var groundDist = Math.max(0, groundY - (y + kart.h)); // pixels above road
     var shadowScale = Math.max(0.15, 1 - groundDist / 200);
     var shadowAlpha = Math.max(0.05, 0.28 * shadowScale);
     var shadowW = Math.round((kart.w - 6) * shadowScale);
     var shadowX = x + 4 + Math.round(((kart.w - 6) - shadowW) / 2);
     ctx.fillStyle = 'rgba(0,0,0,' + shadowAlpha + ')';
-    ctx.fillRect(shadowX, ROAD_Y - 3, shadowW, Math.max(2, Math.round(5 * shadowScale)));
+    ctx.fillRect(shadowX, groundY - 3, shadowW, Math.max(2, Math.round(5 * shadowScale)));
 
     // ── Kart body ──
-    ctx.fillStyle = '#cc2211';
+    paint = paint || kart.paint;
+    ctx.fillStyle = paint[0];
     ctx.fillRect(x + 6,  y + 14, 40, 14);   // main chassis
-    ctx.fillStyle = '#ee4433';
+    ctx.fillStyle = paint[1];
     ctx.fillRect(x + 8,  y + 12, 38,  5);   // top highlight strip
-    ctx.fillStyle = '#881100';
+    ctx.fillStyle = paint[2];
     ctx.fillRect(x + 6,  y + 26, 40,  2);   // underside shadow
 
     // ── Side exhaust pipes ──
@@ -1584,28 +1733,37 @@ function drawTitleScreen() {
     ctx.fillStyle = '#ffdd66';
     ctx.fillText('R O A D   R A G E', W/2, 158);
 
-    // Blink prompt
-    if (Math.floor(frameCount / 28) % 2 === 0) {
-        ctx.font = '18px Courier New';
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText('PRESS ANY KEY TO START', W/2, 228);
-    }
-
     // Best run
     ctx.font = '13px Courier New';
     ctx.fillStyle = '#8899aa';
     var best = meta.bestDistance > 0 ? Math.floor(meta.bestDistance / 10) + 'm' : '---';
-    ctx.fillText('BEST: ' + best + '   RUNS: ' + meta.totalRuns, W/2, 268);
-
+    ctx.fillText('BEST: ' + best + '   RUNS: ' + meta.totalRuns, W/2, 196);
     ctx.fillStyle = '#556677';
-    ctx.fillText(meta.achievements.length + ' / ' + ACHIEVEMENT_DEFS.length + ' achievements', W/2, 290);
+    ctx.fillText(meta.achievements.length + ' / ' + ACHIEVEMENT_DEFS.length + ' achievements   \u00B7   ' +
+        unlockedAbilities().length + ' / ' + ABILITY_POOL.length + ' karts', W/2, 216);
+    ctx.textAlign = 'left';
+
+    drawButton('[ENTER] START RACE',  W/2 - 214, 236, 204, 36, goToAbilityPick);
+    drawButton('[A] ACHIEVEMENTS',    W/2 + 10,  236, 204, 36, function() { openAchievements('TITLE'); });
 
     // Controls
+    ctx.textAlign = 'center';
     ctx.font = '12px Courier New';
     ctx.fillStyle = '#445566';
-    ctx.fillText('SPACE: Jump     SHIFT: Boost', W/2, H - 22);
-
+    ctx.fillText('SPACE: Jump     SHIFT: Boost     ESC: Pause', W/2, H - 22);
     ctx.textAlign = 'left';
+}
+
+// ==================== CARD LAYOUT ====================
+// Shared by the ability pick and pit stop screens for drawing, hover and clicks
+function cardLayout(n, cw, ch, gap, y) {
+    var x0 = (W - (n * cw + (n - 1) * gap)) / 2, rects = [];
+    for (var i = 0; i < n; i++) rects.push({ x:x0 + i * (cw + gap), y:y, w:cw, h:ch });
+    return rects;
+}
+
+function mouseIn(r) {
+    return mouseX >= r.x && mouseX <= r.x + r.w && mouseY >= r.y && mouseY <= r.y + r.h;
 }
 
 // ==================== DRAW: ABILITY PICK ====================
@@ -1616,51 +1774,51 @@ function drawAbilityPick() {
     ctx.textAlign = 'center';
     ctx.font = 'bold 30px Courier New';
     ctx.fillStyle = '#ff8800';
-    ctx.fillText('CHOOSE YOUR KART BUILD', W/2, 66);
+    ctx.fillText('CHOOSE YOUR KART', W/2, 66);
 
     ctx.font = '14px Courier New';
     ctx.fillStyle = '#8888aa';
-    ctx.fillText('Your build shapes the entire run', W/2, 92);
+    ctx.fillText('Your kart shapes the entire run', W/2, 92);
 
-    var cw = 194, ch = 185, gap = 14;
-    var totalW = abilityChoices.length * cw + (abilityChoices.length - 1) * gap;
-    var startX = (W - totalW) / 2;
-
+    var rects = cardLayout(abilityChoices.length, 194, 200, 14, 116);
     for (var i = 0; i < abilityChoices.length; i++) {
         var ab  = abilityChoices[i];
-        var cx  = startX + i * (cw + gap);
-        var cy  = 116;
-        var hot = (abilitySelected === i);
+        var r   = rects[i];
+        var hot = mouseIn(r);
+        uiButtons.push({ x:r.x, y:r.y, w:r.w, h:r.h, action:selectAbility.bind(null, i) });
 
         ctx.fillStyle = hot ? 'rgba(80,42,5,0.97)' : 'rgba(18,20,44,0.97)';
-        ctx.fillRect(cx, cy, cw, ch);
+        ctx.fillRect(r.x, r.y, r.w, r.h);
         ctx.strokeStyle = hot ? '#ff8800' : '#334';
         ctx.lineWidth   = hot ? 3 : 1;
-        ctx.strokeRect(cx, cy, cw, ch);
+        ctx.strokeRect(r.x, r.y, r.w, r.h);
         ctx.lineWidth   = 1;
 
         ctx.font = 'bold 13px Courier New';
         ctx.fillStyle = '#ff8800';
         ctx.textAlign = 'left';
-        ctx.fillText('[' + (i + 1) + ']', cx + 8, cy + 20);
+        ctx.fillText('[' + (i + 1) + ']', r.x + 8, r.y + 20);
+
+        drawKart(r.x + r.w/2 - 26, r.y + 26, Math.floor(frameCount / 8) % 4, 0, false, ab.paint, r.y + 62);
 
         ctx.font = 'bold 15px Courier New';
         ctx.fillStyle = '#ffffff';
         ctx.textAlign = 'center';
-        ctx.fillText(ab.name, cx + cw/2, cy + 52);
+        ctx.fillText(ab.name, r.x + r.w/2, r.y + 86);
 
         ctx.fillStyle = hot ? '#ff8800' : '#334';
-        ctx.fillRect(cx + 20, cy + 60, cw - 40, 1);
+        ctx.fillRect(r.x + 20, r.y + 94, r.w - 40, 1);
 
         ctx.font = '12px Courier New';
         ctx.fillStyle = '#aaaacc';
-        wrapText(ctx, ab.desc, cx + cw/2, cy + 82, cw - 24, 17);
+        wrapText(ctx, ab.desc, r.x + r.w/2, r.y + 116, r.w - 24, 17);
     }
 
     ctx.font = '13px Courier New';
     ctx.fillStyle = '#555566';
     ctx.textAlign = 'center';
-    ctx.fillText('Keys 1 / 2 / 3  or  click a card', W/2, 116 + ch + 28);
+    ctx.fillText('Keys 1 / 2 / 3  or  click a card   \u00B7   ' +
+        unlockedAbilities().length + ' / ' + ABILITY_POOL.length + ' karts unlocked', W/2, 116 + 200 + 28);
     ctx.textAlign = 'left';
 }
 
@@ -1678,88 +1836,71 @@ function drawUpgradeScreen() {
     ctx.fillStyle = '#8888aa';
     ctx.fillText('Choose one upgrade to keep racing', W/2, 84);
 
-    var cw = 188, ch = 190, gap = 13;
-    var totalW = upgradeChoices.length * cw + (upgradeChoices.length - 1) * gap;
-    var startX = (W - totalW) / 2;
-
+    var rects = cardLayout(upgradeChoices.length, 188, 190, 13, 102);
     for (var i = 0; i < upgradeChoices.length; i++) {
         var up  = upgradeChoices[i];
-        var cx  = startX + i * (cw + gap);
-        var cy  = 102;
-        var hot = (upgradeSelected === i);
+        var r   = rects[i];
+        var hot = mouseIn(r);
+        uiButtons.push({ x:r.x, y:r.y, w:r.w, h:r.h, action:applyUpgrade.bind(null, i) });
 
         ctx.fillStyle = hot ? 'rgba(70,40,5,0.98)' : 'rgba(14,16,38,0.98)';
-        ctx.fillRect(cx, cy, cw, ch);
-        ctx.strokeStyle = hot ? '#ff8800' : (up.color || '#334');
+        ctx.fillRect(r.x, r.y, r.w, r.h);
+        ctx.strokeStyle = hot ? '#ff8800' : up.color;
         ctx.lineWidth   = hot ? 3 : 2;
-        ctx.strokeRect(cx, cy, cw, ch);
+        ctx.strokeRect(r.x, r.y, r.w, r.h);
         ctx.lineWidth   = 1;
 
         // Color bar top
-        ctx.fillStyle = up.color || '#446';
-        ctx.fillRect(cx, cy, cw, 5);
+        ctx.fillStyle = up.color;
+        ctx.fillRect(r.x, r.y, r.w, 5);
 
         ctx.font = 'bold 13px Courier New';
         ctx.fillStyle = '#ff8800';
         ctx.textAlign = 'left';
-        ctx.fillText('[' + (i + 1) + ']', cx + 8, cy + 22);
+        ctx.fillText('[' + (i + 1) + ']', r.x + 8, r.y + 22);
 
-        ctx.font = '22px Courier New';
-        ctx.textAlign = 'center';
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(up.icon, cx + cw/2, cy + 56);
+        drawPixelIcon(ICON_ART[up.id], r.x + r.w/2 - 16, r.y + 24, 4);
 
         ctx.font = 'bold 14px Courier New';
         ctx.fillStyle = '#ffffff';
-        ctx.fillText(up.name, cx + cw/2, cy + 80);
+        ctx.textAlign = 'center';
+        ctx.fillText(up.name, r.x + r.w/2, r.y + 80);
 
-        ctx.fillStyle = up.color || '#334';
-        ctx.fillRect(cx + 18, cy + 88, cw - 36, 1);
+        ctx.fillStyle = up.color;
+        ctx.fillRect(r.x + 18, r.y + 88, r.w - 36, 1);
 
         ctx.font = '11px Courier New';
         ctx.fillStyle = '#aaaacc';
-        wrapText(ctx, up.desc, cx + cw/2, cy + 108, cw - 22, 16);
+        wrapText(ctx, up.desc, r.x + r.w/2, r.y + 108, r.w - 22, 16);
     }
 
     ctx.font = '13px Courier New';
     ctx.fillStyle = '#555566';
     ctx.textAlign = 'center';
-    ctx.fillText('Keys 1 / 2 / 3  or  click a card', W/2, 102 + ch + 28);
+    ctx.fillText('Keys 1 / 2 / 3  or  click a card', W/2, 102 + 190 + 28);
     ctx.textAlign = 'left';
 }
 
 // ==================== DRAW: DEATH SCREEN (WIPEOUT) ====================
-function drawDeathScreen() {
-    ctx.textAlign = 'center';
-
-    ctx.font = 'bold 68px Courier New';
-    ctx.fillStyle = '#660000';
-    ctx.fillText('WIPEOUT!', W/2 + 3, 95);
-    ctx.fillStyle = '#ff2222';
-    ctx.fillText('WIPEOUT!', W/2,     92);
-
-    // Expand panel height if upgrades to display
-    var upgradeLineH = activeUpgrades.length > 0 ? (12 + activeUpgrades.length * 18) : 0;
-    var pw = 450, ph = 258 + upgradeLineH, px = (W - pw) / 2, py = 100;
-    ctx.fillStyle = 'rgba(26,6,6,0.92)';
+function drawRunStats(py, accent) {
+    var pw = 450, ph = 236, px = (W - pw) / 2;
+    ctx.fillStyle = 'rgba(20,10,10,0.92)';
     ctx.fillRect(px, py, pw, ph);
-    ctx.strokeStyle = '#550000';
+    ctx.strokeStyle = accent;
     ctx.lineWidth = 2;
     ctx.strokeRect(px, py, pw, ph);
     ctx.lineWidth = 1;
 
-    var elapsed = Date.now() - runStartTime;
     var rows = [
         ['DISTANCE', distMeters() + 'm'],
-        ['TIME',     formatTime(elapsed)],
+        ['TIME',     formatTime(runFrames * 1000 / 60)],
         ['ZONE',     BIOMES[currentBiomeIdx].name],
         ['ENEMIES',  kills + ''],
         ['CORN',     corn  + '']
     ];
-
     ctx.font = '14px Courier New';
     for (var ri = 0; ri < rows.length; ri++) {
-        var ry = py + 32 + ri * 36;
+        var ry = py + 28 + ri * 30;
         ctx.fillStyle = '#777788';
         ctx.textAlign = 'left';
         ctx.fillText(rows[ri][0], px + 22, ry);
@@ -1768,19 +1909,15 @@ function drawDeathScreen() {
         ctx.fillText(rows[ri][1], px + pw - 22, ry);
     }
 
-    // List upgrades taken
-    if (activeUpgrades.length > 0) {
-        var uStartY = py + 32 + rows.length * 36;
-        ctx.font = '13px Courier New';
-        ctx.fillStyle = '#777788';
-        ctx.textAlign = 'left';
-        ctx.fillText('UPGRADES', px + 22, uStartY);
-        ctx.fillStyle = '#aaddff';
-        for (var ui = 0; ui < activeUpgrades.length; ui++) {
-            var uDef = UPGRADE_DEFS.filter(function(u){ return u.id === activeUpgrades[ui]; })[0];
-            var uName = uDef ? uDef.name : activeUpgrades[ui];
-            ctx.fillText('\u2022 ' + uName, px + 22, uStartY + 14 + ui * 18);
-        }
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#777788';
+    ctx.fillText('UPGRADES', px + 22, py + 178);
+    if (activeUpgrades.length === 0) {
+        ctx.fillStyle = '#555566';
+        ctx.fillText('none', px + 130, py + 178);
+    }
+    for (var ui = 0; ui < activeUpgrades.length; ui++) {
+        if (ICON_ART[activeUpgrades[ui]]) drawPixelIcon(ICON_ART[activeUpgrades[ui]], px + 130 + ui * 22, py + 164, 2);
     }
 
     if (newBest) {
@@ -1789,15 +1926,26 @@ function drawDeathScreen() {
         ctx.textAlign = 'center';
         ctx.fillText('\u2605  NEW BEST DISTANCE!  \u2605', W/2, py + ph - 16);
     }
-
-    if (Math.floor(frameCount / 32) % 2 === 0) {
-        ctx.font = 'bold 17px Courier New';
-        ctx.fillStyle = '#ffffff';
-        ctx.textAlign = 'center';
-        ctx.fillText('PRESS  R  TO  RESTART', W/2, H - 30);
-    }
-
     ctx.textAlign = 'left';
+}
+
+function drawEndButtons(label) {
+    drawButton(label,           W/2 - 318, H - 66, 204, 36, goToAbilityPick);
+    drawButton('[A] ACHIEVEMENTS', W/2 - 102, H - 66, 204, 36, function() { openAchievements(gameState); });
+    drawButton('[Q] TITLE',     W/2 + 114, H - 66, 204, 36, quitToTitle);
+}
+
+function drawDeathScreen() {
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 68px Courier New';
+    ctx.fillStyle = '#660000';
+    ctx.fillText('WIPEOUT!', W/2 + 3, 85);
+    ctx.fillStyle = '#ff2222';
+    ctx.fillText('WIPEOUT!', W/2,     82);
+    ctx.textAlign = 'left';
+
+    drawRunStats(104, '#550000');
+    drawEndButtons('[R] RESTART');
 }
 
 // ==================== DRAW: VICTORY SCREEN ====================
@@ -1817,26 +1965,15 @@ function drawVictoryScreen() {
     }
 
     ctx.textAlign = 'center';
-
     ctx.font = 'bold 58px Courier New';
     ctx.fillStyle = '#330000';
-    ctx.fillText('FINISH LINE!', W/2 + 3, 113);
+    ctx.fillText('FINISH LINE!', W/2 + 3, 63);
     ctx.fillStyle = '#ffdd00';
-    ctx.fillText('FINISH LINE!', W/2,     110);
-
-    ctx.font = 'bold 20px Courier New';
+    ctx.fillText('FINISH LINE!', W/2,     60);
+    ctx.font = 'bold 18px Courier New';
     ctx.fillStyle = '#ff8800';
-    ctx.fillText('YOU REACHED THE END OF THE ROAD!', W/2, 148);
-
-    var elapsed = Date.now() - runStartTime;
-    ctx.font = '15px Courier New';
-    ctx.fillStyle = '#dddddd';
-    ctx.fillText('Distance: ' + distMeters() + 'm   Time: ' + formatTime(elapsed), W/2, 196);
-    ctx.fillText('Enemies beaten: ' + kills + '   Corn collected: ' + corn, W/2, 222);
-
-    ctx.font = '13px Courier New';
-    ctx.fillStyle = '#888899';
-    ctx.fillText('Upgrades taken: ' + activeUpgrades.length + ' / ' + UPGRADE_DEFS.length, W/2, 250);
+    ctx.fillText('YOU REACHED THE END OF THE ROAD!', W/2, 90);
+    ctx.textAlign = 'left';
 
     // Periodic fireworks celebration
     if (frameCount - lastVictoryFirework > 28) {
@@ -1853,27 +1990,23 @@ function drawVictoryScreen() {
         }
     }
 
-    if (victoryInputLock <= 0 && Math.floor(frameCount / 32) % 2 === 0) {
-        ctx.font = 'bold 17px Courier New';
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText('PRESS  R  TO  PLAY AGAIN', W/2, H - 30);
-    }
-
-    ctx.textAlign = 'left';
+    drawRunStats(104, '#806000');
+    if (victoryInputLock <= 0) drawEndButtons('[R] PLAY AGAIN');
 }
 
 // ==================== DRAW: TOASTS ====================
 function drawToasts() {
+    if (toasts.length > 4) toasts.splice(0, toasts.length - 4);
     for (var i = toasts.length - 1; i >= 0; i--) {
         var t = toasts[i];
-        t.timer--;
+        if (gameState !== 'PAUSED') t.timer--;
         if (t.timer <= 0) { toasts.splice(i, 1); continue; }
 
         var alpha = Math.min(1, t.timer / 35);
         ctx.font  = 'bold 12px Courier New';
         var tw    = ctx.measureText(t.text).width + 22;
         var tx    = W - tw - 10;
-        var ty    = 52 + i * 34;
+        var ty    = (gameState === 'DEAD' || gameState === 'VICTORY' ? 10 : 100) + i * 34;
 
         ctx.globalAlpha = alpha;
         ctx.fillStyle   = 'rgba(12,10,28,0.92)';
@@ -1890,6 +2023,126 @@ function drawToasts() {
     }
     ctx.textAlign = 'left';
 }
+
+// ==================== UI BUTTONS ====================
+var uiButtons = []; // rebuilt every frame by drawButton(); clicks are hit-tested against it
+
+function drawButton(label, x, y, w, h, action) {
+    uiButtons.push({ x:x, y:y, w:w, h:h, action:action });
+    var pulse = 0.5 + 0.5 * Math.sin(frameCount * 0.08);
+    ctx.fillStyle = mouseIn({ x:x, y:y, w:w, h:h }) ? 'rgba(80,42,5,0.95)' : 'rgba(30,20,40,0.92)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = 'rgba(255,136,0,' + (0.55 + pulse * 0.45) + ')';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    ctx.lineWidth = 1;
+    ctx.font = 'bold 14px Courier New';
+    ctx.fillStyle = '#ffcc66';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + w / 2, y + h / 2 + 5);
+    ctx.textAlign = 'left';
+}
+
+// ==================== DRAW: PAUSE OVERLAY ====================
+function drawPauseOverlay() {
+    ctx.fillStyle = 'rgba(0,0,15,0.62)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 56px Courier New';
+    ctx.fillStyle = '#000000'; ctx.fillText('PAUSED', W / 2 + 3, 183);
+    ctx.fillStyle = '#ffffff'; ctx.fillText('PAUSED', W / 2, 180);
+    ctx.font = '14px Courier New';
+    ctx.fillStyle = '#aaaacc';
+    ctx.fillText(distMeters() + 'm  \u00B7  ' + BIOMES[currentBiomeIdx].name, W / 2, 214);
+    ctx.textAlign = 'left';
+    drawButton('[ESC] RESUME', W / 2 - 214, 250, 204, 36, resumeGame);
+    drawButton('[Q] QUIT',     W / 2 + 10,  250, 204, 36, quitToTitle);
+}
+
+// ==================== DRAW: ACHIEVEMENTS SCREEN ====================
+function drawAchievementsScreen() {
+    ctx.fillStyle = '#100a18';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 30px Courier New';
+    ctx.fillStyle = '#ff8800';
+    ctx.fillText('ACHIEVEMENTS', W / 2, 44);
+    ctx.font = '13px Courier New';
+    ctx.fillStyle = '#8888aa';
+    ctx.fillText(meta.achievements.length + ' / ' + ACHIEVEMENT_DEFS.length + ' unlocked   \u00B7   ' +
+        unlockedAbilities().length + ' / ' + ABILITY_POOL.length + ' karts', W / 2, 66);
+
+    var cw = 372, ch = 42, gx = 14, gy = 7;
+    var x0 = (W - cw * 2 - gx) / 2, y0 = 80;
+    for (var i = 0; i < ACHIEVEMENT_DEFS.length; i++) {
+        var a   = ACHIEVEMENT_DEFS[i];
+        var got = hasAchievement(a.id);
+        var cx  = x0 + (i % 2) * (cw + gx);
+        var cy  = y0 + Math.floor(i / 2) * (ch + gy);
+        ctx.fillStyle = got ? 'rgba(80,42,5,0.95)' : 'rgba(24,20,36,0.95)';
+        ctx.fillRect(cx, cy, cw, ch);
+        ctx.strokeStyle = got ? '#ff8800' : '#33334a';
+        ctx.strokeRect(cx + 0.5, cy + 0.5, cw - 1, ch - 1);
+
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 18px Courier New';
+        ctx.fillStyle = got ? '#ffcc66' : '#44445a';
+        ctx.fillText(got ? '\u2713' : '?', cx + 18, cy + 27);
+
+        ctx.textAlign = 'left';
+        ctx.font = 'bold 13px Courier New';
+        ctx.fillStyle = got ? '#ffffff' : '#77778a';
+        ctx.fillText(a.name, cx + 36, cy + 18);
+        ctx.font = '11px Courier New';
+        ctx.fillStyle = got ? '#d8c890' : '#55556a';
+        ctx.fillText(a.desc, cx + 36, cy + 33);
+
+        var ab = abilityUnlockedBy(a.id);
+        if (ab) {
+            ctx.textAlign = 'right';
+            ctx.font = 'bold 10px Courier New';
+            ctx.fillStyle = got ? '#7fe0ff' : '#3f6a7a';
+            ctx.fillText('UNLOCKS ' + ab.name.toUpperCase(), cx + cw - 8, cy + 18);
+        }
+    }
+    ctx.textAlign = 'left';
+    drawButton('[ESC] BACK', W / 2 - 90, H - 44, 180, 32, closeAchievements);
+}
+
+// ==================== STATE CHANGES ====================
+var achReturnState = 'TITLE';
+
+function openAchievements(from) {
+    achReturnState = from;
+    gameState = 'ACHIEVEMENTS';
+}
+
+function closeAchievements() {
+    gameState = achReturnState;
+}
+
+function pauseGame() {
+    if (gameState !== 'PLAYING' || isDying) return;
+    gameState = 'PAUSED';
+    keyHeld = {};
+    stopMusic();
+}
+
+function resumeGame() {
+    if (gameState !== 'PAUSED') return;
+    gameState = 'PLAYING';
+    startMusic(BIOMES[currentBiomeIdx].musicIdx);
+}
+
+function quitToTitle() {
+    stopMusic();
+    gameState = 'TITLE';
+    document.getElementById('hud').style.display = 'none';
+}
+
+document.addEventListener('visibilitychange', function() {
+    if (document.hidden) pauseGame();
+});
 
 // ==================== DRAW: SPEED LINES ====================
 function drawSpeedLines() {
@@ -1927,21 +2180,43 @@ function drawBiomeFlash() {
 var keyHeld = {};
 
 function goToAbilityPick() {
-    var pool = ABILITY_POOL.slice();
+    var pool = unlockedAbilities();
     shuffleArray(pool);
-    abilityChoices  = pool.slice(0, 3);
-    abilitySelected = -1;
+    abilityChoices = pool.slice(0, 3);
     gameState = 'ABILITY_PICK';
+    document.getElementById('hud').style.display = 'none';
+}
+
+function canvasPoint(ev) {
+    var rect = canvas.getBoundingClientRect();
+    return { x:(ev.clientX - rect.left) * (W / rect.width), y:(ev.clientY - rect.top) * (H / rect.height) };
 }
 
 document.addEventListener('keydown', function(e) {
+    if (e.code === 'Space' && gameState === 'PLAYING') e.preventDefault();
     if (keyHeld[e.code]) return;
     keyHeld[e.code] = true;
     initAudio();
 
-    if (gameState === 'TITLE') { goToAbilityPick(); return; }
+    if (gameState === 'TITLE') {
+        if (e.code === 'KeyA') openAchievements('TITLE');
+        else goToAbilityPick();
+        return;
+    }
+
+    if (gameState === 'ACHIEVEMENTS') {
+        if (e.code === 'Escape' || e.code === 'KeyA' || e.code === 'Enter' || e.code === 'Backspace') closeAchievements();
+        return;
+    }
+
+    if (gameState === 'PAUSED') {
+        if (e.code === 'Escape' || e.code === 'KeyP' || e.code === 'Space') { e.preventDefault(); resumeGame(); }
+        else if (e.code === 'KeyQ') quitToTitle();
+        return;
+    }
 
     if (gameState === 'ABILITY_PICK') {
+        if (e.code === 'Escape') { gameState = 'TITLE'; return; }
         if (e.code === 'Digit1') selectAbility(0);
         if (e.code === 'Digit2') selectAbility(1);
         if (e.code === 'Digit3') selectAbility(2);
@@ -1956,12 +2231,16 @@ document.addEventListener('keydown', function(e) {
     }
 
     if (gameState === 'DEAD' || gameState === 'VICTORY') {
-        if (victoryInputLock <= 0 && (e.code === 'KeyR' || e.code === 'Space')) goToAbilityPick();
+        if (victoryInputLock > 0) return;
+        if (e.code === 'KeyR' || e.code === 'Space') goToAbilityPick();
+        else if (e.code === 'KeyA') openAchievements(gameState);
+        else if (e.code === 'KeyQ') quitToTitle();
         return;
     }
 
     if (gameState === 'PLAYING') {
-        if (e.code === 'Space')                                { e.preventDefault(); doJump(); }
+        if (e.code === 'Escape' || e.code === 'KeyP')          { pauseGame(); return; }
+        if (e.code === 'Space')                                { doJump(); }
         if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { e.preventDefault(); doBoost(); }
     }
 });
@@ -1970,76 +2249,32 @@ document.addEventListener('keyup', function(e) { keyHeld[e.code] = false; });
 
 canvas.addEventListener('click', function(ev) {
     initAudio();
-    var rect = canvas.getBoundingClientRect();
-    var mx   = (ev.clientX - rect.left) * (W / rect.width);
-    var my   = (ev.clientY - rect.top)  * (H / rect.height);
+    var pt = canvasPoint(ev);
+    mouseX = pt.x; mouseY = pt.y;
 
-    if (gameState === 'TITLE') { goToAbilityPick(); return; }
-
-    if (gameState === 'ABILITY_PICK') {
-        var acw = 194, ach = 185, agap = 14;
-        var atW = abilityChoices.length * acw + (abilityChoices.length - 1) * agap;
-        var asx = (W - atW) / 2;
-        for (var ai = 0; ai < abilityChoices.length; ai++) {
-            var acx = asx + ai * (acw + agap);
-            if (mx >= acx && mx <= acx + acw && my >= 116 && my <= 116 + ach)
-                { selectAbility(ai); return; }
-        }
-        return;
+    for (var bi = 0; bi < uiButtons.length; bi++) {
+        var btn = uiButtons[bi];
+        if (mouseIn(btn)) { btn.action(); return; }
     }
 
-    if (gameState === 'UPGRADE') {
-        var ucw = 188, uch = 190, ugap = 13;
-        var utW = upgradeChoices.length * ucw + (upgradeChoices.length - 1) * ugap;
-        var usx = (W - utW) / 2;
-        for (var ui = 0; ui < upgradeChoices.length; ui++) {
-            var ucx = usx + ui * (ucw + ugap);
-            if (mx >= ucx && mx <= ucx + ucw && my >= 102 && my <= 102 + uch)
-                { applyUpgrade(ui); return; }
-        }
-        return;
-    }
-
-    if (gameState === 'DEAD' || gameState === 'VICTORY') { if (victoryInputLock <= 0) goToAbilityPick(); return; }
+    if (gameState === 'TITLE')        { goToAbilityPick(); return; }
+    if (gameState === 'PAUSED')       { resumeGame(); return; }
+    if (gameState === 'ACHIEVEMENTS') { closeAchievements(); return; }
 
     if (gameState === 'PLAYING') {
-        if (mx < W / 2) doJump(); else doBoost();
+        if (pt.x < W / 2) doJump(); else doBoost();
     }
 });
 
 canvas.addEventListener('mousemove', function(ev) {
-    var rect = canvas.getBoundingClientRect();
-    mouseX = (ev.clientX - rect.left) * (W / rect.width);
-    mouseY = (ev.clientY - rect.top)  * (H / rect.height);
-
-    if (gameState === 'ABILITY_PICK') {
-        var acw = 194, ach = 185, agap = 14;
-        var atW = abilityChoices.length * acw + (abilityChoices.length - 1) * agap;
-        var asx = (W - atW) / 2;
-        abilitySelected = -1;
-        for (var ai = 0; ai < abilityChoices.length; ai++) {
-            var acx = asx + ai * (acw + agap);
-            if (mouseX >= acx && mouseX <= acx + acw && mouseY >= 116 && mouseY <= 116 + ach)
-                { abilitySelected = ai; break; }
-        }
-    }
-
-    if (gameState === 'UPGRADE') {
-        var ucw = 188, uch = 190, ugap = 13;
-        var utW = upgradeChoices.length * ucw + (upgradeChoices.length - 1) * ugap;
-        var usx = (W - utW) / 2;
-        upgradeSelected = -1;
-        for (var ui = 0; ui < upgradeChoices.length; ui++) {
-            var ucx = usx + ui * (ucw + ugap);
-            if (mouseX >= ucx && mouseX <= ucx + ucw && mouseY >= 102 && mouseY <= 102 + uch)
-                { upgradeSelected = ui; break; }
-        }
-    }
+    var pt = canvasPoint(ev);
+    mouseX = pt.x; mouseY = pt.y;
 });
 
 document.getElementById('jumpBtn').addEventListener('touchstart', function(e) {
     e.preventDefault(); initAudio();
-    if (gameState === 'PLAYING') doJump();
+    if (gameState === 'PAUSED') resumeGame();
+    else if (gameState === 'PLAYING') doJump();
 }, { passive: false });
 
 document.getElementById('boostBtn').addEventListener('touchstart', function(e) {
@@ -2047,9 +2282,15 @@ document.getElementById('boostBtn').addEventListener('touchstart', function(e) {
     if (gameState === 'PLAYING') doBoost();
 }, { passive: false });
 
+document.getElementById('pauseBtn').addEventListener('touchstart', function(e) {
+    e.preventDefault();
+    if (gameState === 'PLAYING') pauseGame(); else resumeGame();
+}, { passive: false });
+
 // ==================== GAME LOOP ====================
 function loop() {
     frameCount++;
+    uiButtons = [];
     ctx.save();
 
     // Screen shake
@@ -2069,19 +2310,24 @@ function loop() {
     } else if (gameState === 'ABILITY_PICK') {
         drawAbilityPick();
 
-    } else if (gameState === 'PLAYING' || gameState === 'UPGRADE') {
-        spawnBiomeParticles();
-        generateObstacles();
-        cullObstacles();
-        spawnEnemies();
-        generateCollectibles();
+    } else if (gameState === 'ACHIEVEMENTS') {
+        drawAchievementsScreen();
+
+    } else if (gameState === 'PLAYING' || gameState === 'UPGRADE' || gameState === 'PAUSED') {
+        if (gameState !== 'PAUSED') {
+            spawnBiomeParticles();
+            generateObstacles();
+            cullObstacles();
+            spawnEnemies();
+            generateCollectibles();
+        }
 
         if (gameState === 'PLAYING') {
             updatePhysics();
             updateCollectibles();
             updateEnemies();
         }
-        updateParticles();
+        if (gameState !== 'PAUSED') updateParticles();
 
         drawBackground();
         drawBgParticles();
@@ -2089,17 +2335,20 @@ function loop() {
         drawObstacles();
         drawCollectibles();
         drawEnemies();
-        drawKart(KART_SCREEN_X, kart.y, kart.animFrame, kart.invincible, kart.shield);
+        if (!isDying) drawKart(KART_SCREEN_X, kart.y, kart.animFrame, kart.invincible, kart.shield);
         drawParticles();
         if (gameState === 'PLAYING') drawSpeedLines();
         drawBiomeFlash();
         drawToasts();
 
         if (gameState === 'UPGRADE') drawUpgradeScreen();
+        if (gameState === 'PAUSED')  drawPauseOverlay();
 
     } else if (gameState === 'DEAD') {
         drawBackground();
         drawRoad();
+        drawObstacles();
+        drawEnemies();
         ctx.fillStyle = 'rgba(0,0,0,0.65)';
         ctx.fillRect(0, 0, W, H);
         drawDeathScreen();
@@ -2116,6 +2365,14 @@ function loop() {
     ctx.restore();
     requestAnimationFrame(loop);
 }
+
+// ==================== FIT TO SCREEN ====================
+// Scale the whole 806x506 game (canvas + border + HUD + touch buttons) to the window
+function fitToScreen() {
+    var s = Math.min(window.innerWidth / 806, (window.innerHeight - 34) / 506, 1.5);
+    document.getElementById('gameContainer').style.transform = 'scale(' + s + ')';
+}
+window.addEventListener('resize', fitToScreen);
 
 // ==================== ENEMY SPAWNING ====================
 function spawnEnemies() {
@@ -2833,6 +3090,7 @@ function drawCollectibles() {
 }
 
 // ==================== BOOTSTRAP ====================
+fitToScreen();
 loop();
 </script>
 <style>
