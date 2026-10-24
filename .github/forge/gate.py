@@ -14,7 +14,7 @@ QUERY = """query($o:String!,$n:String!,$p:Int!,$c:String){repository(owner:$o,na
   headRefOid
   reviews(last:100){nodes{body author{login} commit{oid}}}
   reviewThreads(first:100, after:$c){pageInfo{hasNextPage endCursor} nodes{isResolved isOutdated path line
-  comments(first:1){nodes{body url}}}}}}}"""
+  comments(first:100){nodes{body url}}}}}}}"""
 
 
 def graphql(query, **variables):
@@ -57,7 +57,8 @@ def forge_reviewed(head, reviews):
 
 
 def is_forge_thread(t):
-    return bool(t["comments"]["nodes"]) and MARKER in t["comments"]["nodes"][0]["body"]
+    """A thread is Forge's if any of its (first 100) comments carries the marker."""
+    return any(MARKER in (c.get("body") or "") for c in t["comments"]["nodes"])
 
 
 def open_forge_threads(threads):
