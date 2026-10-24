@@ -31,7 +31,8 @@ def redact(text, *secrets):
 
 def gh(*args, input=None):
     # gh never needs the model key, so don't hand it to the subprocess.
-    env = {k: v for k, v in os.environ.items() if k != SECRET_ENV}
+    env = os.environ.copy()          # snapshot of the current environment at call time
+    env.pop(SECRET_ENV, None)
     return subprocess.run(["gh", *args], check=True, capture_output=True, text=True,
                           input=input, env=env).stdout
 

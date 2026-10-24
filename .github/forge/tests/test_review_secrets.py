@@ -54,3 +54,24 @@ class KeyNeverLeaks(NoSleep, unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GhEnvIsolation(unittest.TestCase):
+    """Round 2: gh() must drop the key from a copy of the *current* os.environ."""
+
+    def test_key_added_after_import_is_still_dropped(self):
+        from unittest import mock
+        seen = {}
+
+        def fake_run(args, **kw):
+            seen.update(kw.get("env") or {})
+            seen["__env_passed__"] = kw.get("env") is not None
+            return mock.Mock(stdout="")
+
+        with mock.patch.dict(review.os.environ, {review.SECRET_ENV: FAKE_KEY, "OTHER": "1"}), \
+                mock.patch.object(review.subprocess, "run", fake_run):
+            review.gh("pr", "diff", "1")
+            self.assertIn(review.SECRET_ENV, review.os.environ, "the parent env must not be mutated")
+        self.assertTrue(seen["__env_passed__"])
+        self.assertNotIn(review.SECRET_ENV, seen)
+        self.assertEqual(seen.get("OTHER"), "1")
