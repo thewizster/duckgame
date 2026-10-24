@@ -1,6 +1,8 @@
 """Forge review gate: fail while any Forge review thread is unresolved, unless dismissed by label."""
 import json, os, subprocess, sys
 
+import forge_env
+
 MARKER = "<!-- forge-review -->"
 DISMISS_LABEL = "forge-review-dismissed"
 
@@ -20,10 +22,9 @@ def graphql(query, **variables):
 
 
 def read_env(env):
-    repo, pr = env["REPO"], int(env["PR_NUMBER"])
-    owner, name = repo.split("/")
-    labels = json.loads(env.get("PR_LABELS") or "[]")
-    return owner, name, pr, labels
+    """Validated (owner, name, pr:int, labels). Raises forge_env.EnvError."""
+    owner, name = forge_env.repo(env)
+    return owner, name, forge_env.pr_number(env), forge_env.labels(env)
 
 
 def fetch_threads(owner, name, pr, graphql=graphql):
@@ -40,6 +41,19 @@ def open_forge_threads(threads):
 
 
 def main(env=os.environ, graphql=graphql):
+    """Entry point: 0 = pass, 1 = block. Any error blocks (fail closed) with a one-line message."""
+    try:
+        return check(env, graphql)
+    except forge_env.EnvError as e:
+        print(f"Forge gate error: {e}", file=sys.stderr)
+    except subprocess.CalledProcessError as e:
+        print(f"Forge gate error: gh failed ({e.returncode}): {(e.stderr or '').strip()[:500]}", file=sys.stderr)
+    except Exception as e:
+        print(f"Forge gate error: {type(e).__name__}: {e}", file=sys.stderr)
+    return 1
+
+
+def check(env, graphql):
     owner, name, pr, labels = read_env(env)
     if DISMISS_LABEL in labels:
         print("Forge review explicitly dismissed via label. Passing."); return 0

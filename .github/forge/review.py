@@ -1,6 +1,8 @@
 """Forge PR review: send the PR diff to Claude and post findings as a PR review."""
 import json, os, re, socket, subprocess, sys, time, urllib.error, urllib.request
 
+import forge_env
+
 MARKER = "<!-- forge-review -->"
 API_URL = "https://api.anthropic.com/v1/messages"
 MAX_DIFF_CHARS = 150_000
@@ -35,7 +37,9 @@ def gh(*args, input=None):
 
 
 def read_env(env):
-    return env["REPO"], env["PR_NUMBER"], env["HEAD_SHA"], env.get("ANTHROPIC_MODEL") or DEFAULT_MODEL
+    """Validated (repo, pr:int, head_sha, model). Raises forge_env.EnvError."""
+    owner, name = forge_env.repo(env)
+    return f"{owner}/{name}", forge_env.pr_number(env), forge_env.sha(env), env.get("ANTHROPIC_MODEL") or DEFAULT_MODEL
 
 
 def truncate_diff(diff, limit=MAX_DIFF_CHARS):
@@ -149,7 +153,7 @@ def main(env=os.environ, gh=gh, opener=urllib.request.urlopen):
     secret = env.get(SECRET_ENV, "")
     try:
         return run(env, gh, opener)
-    except ForgeError as e:
+    except (ForgeError, forge_env.EnvError) as e:
         print(f"Forge review failed: {redact(e, secret)}", file=sys.stderr)
     except Exception as e:
         print(f"Forge review failed unexpectedly: {type(e).__name__}: {redact(e, secret)}", file=sys.stderr)
@@ -158,7 +162,7 @@ def main(env=os.environ, gh=gh, opener=urllib.request.urlopen):
 
 def run(env, gh, opener):
     repo, pr, head_sha, model = read_env(env)
-    diff = gh("pr", "diff", pr, "--repo", repo)
+    diff = gh("pr", "diff", str(pr), "--repo", repo)
     if not diff.strip():
         print("Empty diff, nothing to review."); return 0
     diff, truncated = truncate_diff(diff)
