@@ -365,6 +365,7 @@ const EXHAUST_RADIUS    = 150;    // Exhaust Fire blast radius (px)
 const FLIP_FRAMES       = 28;     // frames per full backflip
 const BAD_LANDING_DAMAGE = 20;    // landing mid-flip
 const TRICK_CORN        = 5;      // corn per completed flip
+const MAX_GP            = 9;      // highest Grand Prix level
 const DIST_MILESTONES   = [500, 1000, 2000, 3000, 4000, 5000, 6000, 7000];   // metres
 
 // ==================== BIOME DEFINITIONS ====================
@@ -526,7 +527,8 @@ const ACHIEVEMENT_DEFS = [
     { id:'podium',         name:'Podium Finish',    desc:'Finish the race in the top 3'          },
     { id:'champion',       name:'Champion',         desc:'Finish the race in 1st place'          },
     { id:'boss_any',       name:'Road Boss',        desc:'Defeat a zone boss'                    },
-    { id:'all_bosses',     name:'Boss Rush',        desc:'Defeat all five zone bosses in one run'}
+    { id:'all_bosses',     name:'Boss Rush',        desc:'Defeat all five zone bosses in one run'},
+    { id:'gp_3',           name:'Grand Prix Legend', desc:'Win Grand Prix 3'                     }
 ];
 
 // ==================== STARTING ABILITY POOL ====================
@@ -622,6 +624,7 @@ function loadMeta() {
     if (typeof m.bestDistance !== 'number')  m.bestDistance = 0;
     if (typeof m.totalRuns    !== 'number')  m.totalRuns    = 0;
     if (typeof m.cornBank     !== 'number')  m.cornBank     = 0;
+    if (typeof m.gpUnlocked   !== 'number')  m.gpUnlocked   = 1;
     if (!m.garage)                           m.garage       = {};
     GARAGE_DEFS.forEach(function(g) { if (typeof m.garage[g.id] !== 'number') m.garage[g.id] = 0; });
     return m;
@@ -668,6 +671,7 @@ let rivals          = [];
 let rivalsKO        = 0;
 let finishPos       = 0;      // race position when the finish line was crossed
 let countdown       = 0;      // frames of the 3-2-1 start countdown left
+let gpLevel         = 1;      // Grand Prix difficulty for this run (chosen on the kart pick screen)
 let boss            = null;   // active zone boss (screen space), see BOSS SYSTEM
 let bossShots       = [];     // boss projectiles (screen space)
 let bossDone        = [];     // per-biome: boss already beaten this run
@@ -764,6 +768,13 @@ function formatTime(ms) {
 }
 
 function distMeters() { return Math.floor(distancePx / 10); }
+
+// Difficulty multiplier for the current Grand Prix: 1 at GP1, +25% per level
+function gpMul() { return 1 + (gpLevel - 1) * 0.25; }
+
+function zoneLabel() {
+    return BIOMES[currentBiomeIdx].name + (gpLevel > 1 ? '  \u00B7  GP' + gpLevel : '');
+}
 
 function ordinal(n) {
     var sfx = (n % 100 >= 11 && n % 100 <= 13) ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th';
@@ -944,7 +955,7 @@ function checkBossTrigger() {
 
 function spawnBoss(i) {
     var def = BOSS_DEFS[i];
-    var hp  = def.hp;
+    var hp  = def.hp + (gpLevel - 1) * 2;
     boss = { idx:i, def:def, x:W + 40, y:ROAD_Y - def.h, w:def.w, h:def.h, hp:hp, maxHp:hp,
              phase:0, state:'intro', timer:0, attackIdx:0, invuln:0, hitFlash:0, shots:0 };
     bossShots = [];
@@ -961,7 +972,7 @@ function spawnBoss(i) {
     startMusic(5);
 }
 
-function bossCooldown() { return [100, 80, 62][boss.phase]; }
+function bossCooldown() { return Math.max(40, [100, 80, 62][boss.phase] - (gpLevel - 1) * 8); }
 
 function hitBoss() {
     if (!boss || boss.invuln > 0) return;
@@ -994,7 +1005,7 @@ function defeatBoss() {
 function bossShoot(kind) {
     var b = boss;
     if (kind === 'roll') {
-        bossShots.push({ kind:'roll', x:b.x - 10, y:ROAD_Y - 24, w:24, h:24, vx:-(3.5 + b.phase), rot:0 });
+        bossShots.push({ kind:'roll', x:b.x - 10, y:ROAD_Y - 24, w:24, h:24, vx:-(3.5 + b.phase + (gpLevel - 1) * 0.4), rot:0 });
     } else if (kind === 'lob') {
         // Lands in front of the kart, leaving a fire patch to jump
         var tx = randBetween(300, 460), T = 50, g = 0.35;
@@ -1323,8 +1334,9 @@ function racePosition() {
 }
 
 function rivalSpeed(r) {
-    var ramp = (BASE_SPEED + (r.worldX - 200) * SPEED_ACCEL) * r.def.skill + 0.4;
-    var spd  = Math.min(MAX_SPEED * r.def.skill, ramp);
+    var skill = r.def.skill + (gpLevel - 1) * 0.02;
+    var ramp  = (BASE_SPEED + (r.worldX - 200) * SPEED_ACCEL) * skill + 0.4;
+    var spd   = Math.min(MAX_SPEED * skill, ramp);
     if (r.worldX - kart.worldX > 3000) spd *= 0.93;   // leaders ease off so the pack stays catchable
     return spd;
 }
@@ -1456,7 +1468,7 @@ function updateHUD() {
     if (kart.boostTimer > 0) boosts += ' \u25BA';
     document.getElementById('boostDisplay').textContent    = 'BOOST ' + (boosts || '0');
     document.getElementById('distanceDisplay').textContent = distMeters() + 'm';
-    document.getElementById('biomeDisplay').textContent    = BIOMES[currentBiomeIdx].name;
+    document.getElementById('biomeDisplay').textContent    = zoneLabel();
     document.getElementById('cornDisplay').textContent     = '\uD83C\uDF3D ' + corn;
     document.getElementById('killDisplay').textContent     = '\uD83D\uDC80 ' + kills;
     var pos = racePosition();
@@ -1543,6 +1555,12 @@ function checkAchievements() {
     if (distancePx >= VICTORY_DIST && !boss) {
         if (gameState === 'PLAYING') {
             unlockAchievement('victory');
+            if (gpLevel >= 3) unlockAchievement('gp_3');
+            if (gpLevel === meta.gpUnlocked && gpLevel < MAX_GP) {
+                meta.gpUnlocked++;
+                saveMeta();
+                toasts.push({ text:'GRAND PRIX ' + meta.gpUnlocked + ' UNLOCKED!', timer:300 });
+            }
             finishPos = racePosition();
             if (finishPos <= 3) unlockAchievement('podium');
             if (finishPos === 1) unlockAchievement('champion');
@@ -1760,7 +1778,7 @@ function landKart() {
 }
 
 function addCorn(n) {
-    cornFrac += n * (1 + 0.25 * garageLevel('scoop'));
+    cornFrac += n * (1 + 0.25 * garageLevel('scoop')) * (1 + (gpLevel - 1) * 0.2);
     var whole = Math.floor(cornFrac);
     corn += whole;
     cornFrac -= whole;
@@ -2182,7 +2200,7 @@ function drawRoad() {
 
 function generateObstacles() {
     while (nextObstacleX < cameraX + GEN_AHEAD) {
-        var gap  = randBetween(320, 620);
+        var gap  = Math.max(260, randBetween(320, 620) / (1 + (gpLevel - 1) * 0.12));
         var roll = Math.random();
         var obj  = null;
         var hazard = BIOMES[currentBiomeIdx].hazard;
@@ -2571,7 +2589,8 @@ function drawTitleScreen() {
     ctx.font = '13px Courier New';
     ctx.fillStyle = '#8899aa';
     var best = meta.bestDistance > 0 ? Math.floor(meta.bestDistance / 10) + 'm' : '---';
-    ctx.fillText('BEST: ' + best + '   RUNS: ' + meta.totalRuns + '   CORN BANK: ' + meta.cornBank, W/2, 196);
+    ctx.fillText('BEST: ' + best + '   RUNS: ' + meta.totalRuns + '   CORN BANK: ' + meta.cornBank +
+        (meta.gpUnlocked > 1 ? '   GRAND PRIX: ' + meta.gpUnlocked : ''), W/2, 196);
     ctx.fillStyle = '#556677';
     ctx.fillText(meta.achievements.length + ' / ' + ACHIEVEMENT_DEFS.length + ' achievements   \u00B7   ' +
         unlockedAbilities().length + ' / ' + ABILITY_POOL.length + ' karts', W/2, 216);
@@ -2656,6 +2675,25 @@ function drawAbilityPick() {
     ctx.fillText('Keys 1 / 2 / 3  or  click a card   \u00B7   ' +
         unlockedAbilities().length + ' / ' + ABILITY_POOL.length + ' karts unlocked', W/2, 116 + 200 + 28);
     ctx.textAlign = 'left';
+
+    // Grand Prix selector, once a harder one has been unlocked
+    if (meta.gpUnlocked > 1) {
+        drawButton('\u25C0', W/2 - 150, 372, 44, 36, function() { changeGp(-1); }, gpLevel <= 1);
+        drawButton('\u25B6', W/2 + 106, 372, 44, 36, function() { changeGp(1); }, gpLevel >= meta.gpUnlocked);
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 18px Courier New';
+        ctx.fillStyle = gpLevel > 1 ? '#ff5544' : '#ffcc66';
+        ctx.fillText('GRAND PRIX ' + gpLevel, W/2, 396);
+        ctx.font = '11px Courier New';
+        ctx.fillStyle = '#777788';
+        ctx.fillText(gpLevel > 1 ? 'Faster, meaner, +' + Math.round((gpLevel - 1) * 20) + '% corn   \u00B7   \u2190 / \u2192'
+                                 : '\u2190 / \u2192 to pick a harder Grand Prix', W/2, 424);
+        ctx.textAlign = 'left';
+    }
+}
+
+function changeGp(d) {
+    gpLevel = Math.max(1, Math.min(meta.gpUnlocked, gpLevel + d));
 }
 
 // ==================== DRAW: UPGRADE SCREEN (PIT STOP) ====================
@@ -2784,7 +2822,7 @@ function drawRunStats(py, accent) {
     var rows = [
         ['DISTANCE', distMeters() + 'm'],
         ['TIME',     formatTime(runFrames * 1000 / 60)],
-        ['ZONE',     BIOMES[currentBiomeIdx].name],
+        ['ZONE',     zoneLabel()],
         ['POSITION', ordinal(finishPos || racePosition()) + (rivalsKO ? '   (' + rivalsKO + ' KO)' : '')],
         ['ENEMIES',  kills + ''],
         ['CORN',     corn + '  \u2192  bank ' + meta.cornBank]
@@ -2863,7 +2901,8 @@ function drawVictoryScreen() {
     ctx.fillText('FINISH LINE!', W/2,     60);
     ctx.font = 'bold 18px Courier New';
     ctx.fillStyle = '#ff8800';
-    ctx.fillText('YOU FINISHED ' + ordinal(finishPos).toUpperCase() + ' OF ' + (RIVAL_DEFS.length + 1) + '!', W/2, 90);
+    ctx.fillText((gpLevel > 1 ? 'GRAND PRIX ' + gpLevel + ': ' : '') +
+        'YOU FINISHED ' + ordinal(finishPos).toUpperCase() + ' OF ' + (RIVAL_DEFS.length + 1) + '!', W/2, 90);
     ctx.textAlign = 'left';
 
     // Periodic fireworks celebration
@@ -2947,7 +2986,7 @@ function drawPauseOverlay() {
     ctx.fillStyle = '#ffffff'; ctx.fillText('PAUSED', W / 2, 180);
     ctx.font = '14px Courier New';
     ctx.fillStyle = '#aaaacc';
-    ctx.fillText(distMeters() + 'm  \u00B7  ' + BIOMES[currentBiomeIdx].name, W / 2, 214);
+    ctx.fillText(distMeters() + 'm  \u00B7  ' + zoneLabel(), W / 2, 214);
     ctx.textAlign = 'left';
     drawButton('[ESC] RESUME', W / 2 - 214, 250, 204, 36, resumeGame);
     drawButton('[Q] QUIT',     W / 2 + 10,  250, 204, 36, quitToTitle);
@@ -3079,6 +3118,7 @@ function goToAbilityPick() {
     var pool = unlockedAbilities();
     shuffleArray(pool);
     abilityChoices = pool.slice(0, 3);
+    gpLevel = Math.min(Math.max(gpLevel, 1), meta.gpUnlocked);
     gameState = 'ABILITY_PICK';
     document.getElementById('hud').style.display = 'none';
 }
@@ -3122,6 +3162,8 @@ document.addEventListener('keydown', function(e) {
 
     if (gameState === 'ABILITY_PICK') {
         if (e.code === 'Escape') { gameState = 'TITLE'; return; }
+        if (e.code === 'ArrowLeft')  changeGp(-1);
+        if (e.code === 'ArrowRight') changeGp(1);
         if (e.code === 'Digit1') selectAbility(0);
         if (e.code === 'Digit2') selectAbility(1);
         if (e.code === 'Digit3') selectAbility(2);
@@ -3308,8 +3350,8 @@ function spawnEnemies() {
         var b    = BIOMES[currentBiomeIdx];
         var pool = b.enemies;
         var type = pool[Math.floor(Math.random() * pool.length)];
-        var spd  = Math.min(5.0, 1.5 + distancePx * 0.00006);
-        var gap  = 360 + Math.random() * 300;
+        var spd  = Math.min(5.0, 1.5 + distancePx * 0.00006) * gpMul();
+        var gap  = (360 + Math.random() * 300) / (1 + (gpLevel - 1) * 0.2);
         var wx   = nextEnemyX;
         var e    = null;
 
