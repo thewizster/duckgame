@@ -175,16 +175,42 @@ def _line_no(v):
     return n if n > 0 else None
 
 
+_HUNK_RE = re.compile(r"^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+
 def valid_lines(diff):
-    """Lines that may carry inline comments (right side of each hunk)."""
-    valid, path, line = set(), None, 0
+    """(path, line) pairs that may carry inline comments: added or context lines on the
+    right side, strictly inside a hunk. Hunk lengths from the @@ header decide where a
+    hunk ends, so file headers (diff --git, index, ---/+++) and anything else outside a
+    hunk are never counted, and an added line that looks like a header still is."""
+    valid, path, line, old_left, new_left = set(), None, 0, 0, 0
     for l in diff.splitlines():
-        if l.startswith("+++ "):
+        if old_left > 0 or new_left > 0:          # inside a hunk
+            if l.startswith("\\"):
+                continue                           # "\ No newline at end of file"
+            tag = l[:1]
+            if tag == "-":
+                old_left -= 1
+            elif tag in ("+", " ", ""):            # "" = context line with stripped space
+                if path:
+                    valid.add((path, line))
+                line += 1
+                new_left -= 1
+                if tag != "+":
+                    old_left -= 1
+            else:
+                old_left = new_left = 0            # malformed: leave the hunk
+            continue
+        if l.startswith("diff --git "):
+            path = None
+        elif l.startswith("+++ "):
             path = l[6:] if l.startswith("+++ b/") else None
         elif l.startswith("@@"):
-            line = int(re.search(r"\+(\d+)", l).group(1))
-        elif path and not l.startswith("-") and not l.startswith("\\"):
-            valid.add((path, line)); line += 1
+            m = _HUNK_RE.match(l)
+            if m:
+                old_left = int(m.group(1)) if m.group(1) is not None else 1
+                line = int(m.group(2))
+                new_left = int(m.group(3)) if m.group(3) is not None else 1
     return valid
 
 
