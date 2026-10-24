@@ -64,6 +64,7 @@ class HttpErrors(NoSleep, unittest.TestCase):
         self.assertIn("HTTP 401", log)
         self.assertIn("nope", log)
         self.assertEqual(op.calls, 1, "4xx other than 429 must not be retried")
+        self.assertIn("not retried", log)
         self.assertEqual(gh.posted_reviews(), [])
 
     def test_retries_transient_then_succeeds(self):
@@ -80,6 +81,7 @@ class HttpErrors(NoSleep, unittest.TestCase):
         code, log, _ = run_main(op)
         self.assertEqual(code, 1)
         self.assertIn("HTTP 503", log)
+        self.assertIn("gave up after 3 attempts", log)
         self.assertEqual(op.calls, 3)
 
     def test_timeout_message(self):

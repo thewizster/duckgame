@@ -103,11 +103,13 @@ def call_model(req, api_key, opener=urllib.request.urlopen):
             break
         except Exception as e:
             msg = redact(f"Anthropic API request failed (attempt {attempt}/{attempts}): {_describe(e)}", api_key)
-            if attempt < attempts and _transient(e):
+            if not _transient(e):
+                raise ForgeError(msg + " (not retried: non-transient error)") from None
+            if attempt < attempts:
                 print(msg + " Retrying.", file=sys.stderr)
                 time.sleep(RETRY_DELAYS[attempt - 1])
                 continue
-            raise ForgeError(msg) from None
+            raise ForgeError(msg + f" (gave up after {attempts} attempts)") from None
     try:
         data = json.loads(raw)
     except ValueError:
