@@ -8,10 +8,12 @@ DISMISS_LABEL = "forge-review-dismissed"
 # Logins whose marker-bearing review counts as "Forge reviewed this commit".
 FORGE_BOT_LOGINS = {"github-actions"}
 
-QUERY = """query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){pullRequest(number:$p){
+MAX_PAGES = 50  # 50 x 100 threads; a safety stop, not a real limit
+
+QUERY = """query($o:String!,$n:String!,$p:Int!,$c:String){repository(owner:$o,name:$n){pullRequest(number:$p){
   headRefOid
   reviews(last:100){nodes{body author{login} commit{oid}}}
-  reviewThreads(first:100){nodes{isResolved isOutdated path line
+  reviewThreads(first:100, after:$c){pageInfo{hasNextPage endCursor} nodes{isResolved isOutdated path line
   comments(first:1){nodes{body url}}}}}}}"""
 
 
@@ -32,9 +34,18 @@ def read_env(env):
 
 
 def fetch_pr(owner, name, pr, graphql=graphql):
-    """Return (head_sha, reviews, threads) for the PR."""
-    p = graphql(QUERY, o=owner, n=name, p=pr)["data"]["repository"]["pullRequest"]
-    return p["headRefOid"], p["reviews"]["nodes"], p["reviewThreads"]["nodes"]
+    """Return (head_sha, reviews, threads) for the PR, paging through every review thread."""
+    threads, cursor = [], None
+    for _ in range(MAX_PAGES):
+        p = graphql(QUERY, o=owner, n=name, p=pr, c=cursor)["data"]["repository"]["pullRequest"]
+        if cursor is None:
+            head, reviews = p["headRefOid"], p["reviews"]["nodes"]
+        rt = p["reviewThreads"]
+        threads += rt["nodes"]
+        if not rt["pageInfo"]["hasNextPage"]:
+            return head, reviews, threads
+        cursor = rt["pageInfo"]["endCursor"]
+    raise RuntimeError(f"more than {MAX_PAGES * 100} review threads; refusing to guess (fail closed)")
 
 
 def forge_reviewed(head, reviews):
