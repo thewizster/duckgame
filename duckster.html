@@ -283,7 +283,7 @@ const N = {
     C4:262,  D4:294,  E4:330,  F4:349,  G4:392,  A4:440,  B4:494,
     C5:523,  D5:587,  E5:659,  F5:698,  G5:784,  A5:880,  B5:988,
     C6:1047, D6:1175, E6:1319,
-    Eb4:311, Bb3:233, Bb4:466, Ab3:208, Ab4:415, F3s:185, Eb3:156
+    Eb4:311, Bb3:233, Bb4:466, Ab3:208, Ab4:415, F3s:185, Eb3:156, Eb5:622
 };
 
 // Per-biome music: racing themes, each with distinct feel
@@ -297,7 +297,9 @@ const BIOME_MUSIC = [
     // 3: Mountain Pass — G major open 5ths, majestic climb
     { seq:[N.G3,N.D4,N.G4,N.D4, N.C4,N.G4,N.C5,N.G4, N.A3,N.E4,N.A4,N.E4, N.F3,N.C4,N.F4,N.C4], tempo:148 },
     // 4: Space Highway — ethereal C-major 7th arpeggios
-    { seq:[N.C5,N.G5,N.E5,N.C5, N.Ab4,N.Eb5,N.C5,N.Ab4, N.F4,N.C5,N.A4,N.F4, N.G4,N.D5,N.B4,N.G4], tempo:125 }
+    { seq:[N.C5,N.G5,N.E5,N.C5, N.Ab4,N.Eb5,N.C5,N.Ab4, N.F4,N.C5,N.A4,N.F4, N.G4,N.D5,N.B4,N.G4], tempo:125 },
+    // 5: Boss duel — driving E-minor chromatic stabs
+    { seq:[N.E4,N.E4,N.G4,N.E4, N.Bb4,N.A4,N.G4,N.E4, N.E4,N.E4,N.G4,N.E4, N.B4,N.Bb4,N.A4,N.G4], tempo:100 }
 ];
 
 function startMusic(biomeIdx) {
@@ -522,7 +524,9 @@ const ACHIEVEMENT_DEFS = [
     { id:'trick_2',        name:'Stuntmaster',      desc:'Land a double flip cleanly'            },
     { id:'ko_rivals',      name:'Demolition Derby', desc:'Knock out 3 rivals in one run'         },
     { id:'podium',         name:'Podium Finish',    desc:'Finish the race in the top 3'          },
-    { id:'champion',       name:'Champion',         desc:'Finish the race in 1st place'          }
+    { id:'champion',       name:'Champion',         desc:'Finish the race in 1st place'          },
+    { id:'boss_any',       name:'Road Boss',        desc:'Defeat a zone boss'                    },
+    { id:'all_bosses',     name:'Boss Rush',        desc:'Defeat all five zone bosses in one run'}
 ];
 
 // ==================== STARTING ABILITY POOL ====================
@@ -664,6 +668,12 @@ let rivals          = [];
 let rivalsKO        = 0;
 let finishPos       = 0;      // race position when the finish line was crossed
 let countdown       = 0;      // frames of the 3-2-1 start countdown left
+let boss            = null;   // active zone boss (screen space), see BOSS SYSTEM
+let bossShots       = [];     // boss projectiles (screen space)
+let bossDone        = [];     // per-biome: boss already beaten this run
+let bossesBeaten    = 0;
+let bossPx          = 0;      // world px driven during boss fights (the course distance is frozen)
+let kartAdvance     = 0;      // world px the kart moved this frame
 let shieldBrokenAt  = -1;     // distancePx when the Roll Cage broke (-1 = intact)
 
 // Screen shake
@@ -904,6 +914,387 @@ function spawnBiomeParticles() {
     }
 }
 
+// ==================== BOSS SYSTEM ====================
+// Attacks: roll (ground projectile, jump it), lob (lands as a fire patch), drop (barrier behind the
+// boss), brake (slides back under the kart, then sits dazed: stomp it or boost-ram it).
+const BOSS_DEFS = [
+    { name:'Tractor Ted',     w:96,  h:60, hp:3, roll:'#e8c040',
+      attacks:[['roll', 'brake'], ['roll', 'roll', 'brake'], ['roll', 'drop', 'brake']] },
+    { name:'Sandstorm Sid',   w:92,  h:52, hp:4, roll:'#c09050',
+      attacks:[['roll', 'lob', 'brake'], ['lob', 'roll', 'brake'], ['lob', 'roll', 'lob', 'brake']] },
+    { name:'Big Rig Rhonda',  w:112, h:66, hp:5, roll:'#222222',
+      attacks:[['drop', 'roll', 'brake'], ['roll', 'drop', 'roll', 'brake'], ['drop', 'roll', 'lob', 'brake']] },
+    { name:'Avalanche Al',    w:104, h:60, hp:6, roll:'#f0f8ff',
+      attacks:[['roll', 'lob', 'brake'], ['lob', 'drop', 'roll', 'brake'], ['roll', 'lob', 'drop', 'roll', 'brake']] },
+    { name:'Captain Cosmos',  w:100, h:54, hp:7, roll:'#66ff99',
+      attacks:[['lob', 'roll', 'brake'], ['roll', 'lob', 'drop', 'brake'], ['lob', 'roll', 'lob', 'drop', 'brake']] }
+];
+const BOSS_HOME_X = 560;
+
+// World distance (px) where biome i's boss appears: 220m before the next biome, or the finish line
+function bossTriggerPx(i) {
+    return (i < BIOMES.length - 1 ? BIOMES[i + 1].startDist : VICTORY_DIST) - 2200;
+}
+
+function checkBossTrigger() {
+    var i = currentBiomeIdx;
+    if (boss || bossDone[i] || distancePx < bossTriggerPx(i)) return;
+    spawnBoss(i);
+}
+
+function spawnBoss(i) {
+    var def = BOSS_DEFS[i];
+    var hp  = def.hp;
+    boss = { idx:i, def:def, x:W + 40, y:ROAD_Y - def.h, w:def.w, h:def.h, hp:hp, maxHp:hp,
+             phase:0, state:'intro', timer:0, attackIdx:0, invuln:0, hitFlash:0, shots:0 };
+    bossShots = [];
+    // Rivals near the kart clear out of the duel and hold station off screen
+    for (var r = 0; r < rivals.length; r++) {
+        var rv = rivals[r];
+        if (rv.ko) continue;
+        var d = rv.worldX - kart.worldX;
+        if (d > -300 && d < 0)   rv.worldX = kart.worldX - 400;
+        if (d >= 0 && d < 1000)  rv.worldX = kart.worldX + 1000 + r * 60;
+    }
+    toasts.push({ text:'BOSS: ' + def.name.toUpperCase() + ' BLOCKS THE ROAD!', timer:240 });
+    if (!hasAchievement('boss_any')) toasts.push({ text:'Jump its brake-check, then stomp or boost-ram it', timer:360 });
+    startMusic(5);
+}
+
+function bossCooldown() { return [100, 80, 62][boss.phase]; }
+
+function hitBoss() {
+    if (!boss || boss.invuln > 0) return;
+    boss.hp--;
+    boss.invuln   = 40;
+    boss.hitFlash = 12;
+    shakeFrames = 8; shakeMagnitude = 6;
+    spawnSparks(boss.x + boss.w / 2, boss.y + 10);
+    playTone(180, 'square', 0.14, 0.12); playTone(120, 'sawtooth', 0.10, 0.2, 0.05);
+    boss.phase = boss.hp <= boss.maxHp / 3 ? 2 : boss.hp <= boss.maxHp * 2 / 3 ? 1 : 0;
+    if (boss.hp <= 0) defeatBoss();
+}
+
+function defeatBoss() {
+    for (var i = 0; i < 4; i++) spawnExplosion(boss.x + Math.random() * boss.w, boss.y + Math.random() * boss.h);
+    shakeFrames = 20; shakeMagnitude = 9;
+    sfxVictory();
+    bossDone[boss.idx] = true;
+    bossesBeaten++;
+    addCorn(50);
+    kart.hp = Math.min(kart.maxHp, kart.hp + 25);
+    toasts.push({ text:'BOSS DOWN: ' + boss.def.name + '! +50 corn +25 HP', timer:240 });
+    unlockAchievement('boss_any');
+    if (bossesBeaten >= BOSS_DEFS.length) unlockAchievement('all_bosses');
+    boss = null;
+    bossShots = [];
+    startMusic(BIOMES[currentBiomeIdx].musicIdx);
+}
+
+function bossShoot(kind) {
+    var b = boss;
+    if (kind === 'roll') {
+        bossShots.push({ kind:'roll', x:b.x - 10, y:ROAD_Y - 24, w:24, h:24, vx:-(3.5 + b.phase), rot:0 });
+    } else if (kind === 'lob') {
+        // Lands in front of the kart, leaving a fire patch to jump
+        var tx = randBetween(300, 460), T = 50, g = 0.35;
+        var x0 = b.x + 20, y0 = b.y;
+        bossShots.push({ kind:'lob', x:x0, y:y0, w:16, h:16, vx:(tx - x0) / T,
+                         vy:(ROAD_Y - 8 - y0 - 0.5 * g * T * T) / T, g:g });
+    } else if (kind === 'drop') {
+        obstacles.push({ type:'barrier', worldX:cameraX + b.x + b.w * 0.3, w:22, h:40, drum:true });
+    }
+}
+
+function updateBoss() {
+    if (!boss) return;
+    var b = boss;
+    if (b.invuln > 0) b.invuln--;
+    if (b.hitFlash > 0) b.hitFlash--;
+    b.timer++;
+
+    switch (b.state) {
+        case 'intro':
+            b.x += (BOSS_HOME_X - b.x) * 0.04;
+            if (b.timer > 110) { b.state = 'idle'; b.timer = 0; }
+            break;
+        case 'idle':
+            b.x = BOSS_HOME_X + Math.sin(frameCount * 0.04) * 14;
+            if (b.timer > bossCooldown()) {
+                var list = b.def.attacks[b.phase];
+                b.state = list[b.attackIdx % list.length];
+                b.attackIdx++;
+                b.timer = 0; b.shots = 0;
+            }
+            break;
+        case 'roll':
+        case 'lob':
+        case 'drop':
+            // Later phases fire a second shot
+            if (b.timer === 1 || (b.phase === 2 && b.timer === 32)) bossShoot(b.state);
+            if (b.timer > 40) { b.state = 'idle'; b.timer = 0; }
+            break;
+        case 'brake':
+            // 50-frame warning, then slide back under the kart
+            if (b.timer > 50) {
+                b.x -= 9 + b.phase;
+                if (b.x <= KART_SCREEN_X - 24) { b.x = KART_SCREEN_X - 24; b.state = 'dazed'; b.timer = 0; }
+            }
+            break;
+        case 'dazed':
+            if (b.timer > 95 - b.phase * 10) { b.state = 'return'; b.timer = 0; }
+            break;
+        case 'return':
+            b.x += 6;
+            if (b.x >= BOSS_HOME_X) { b.x = BOSS_HOME_X; b.state = 'idle'; b.timer = 0; }
+            break;
+    }
+
+    // Projectiles
+    for (var i = bossShots.length - 1; i >= 0; i--) {
+        var s = bossShots[i];
+        s.x += s.vx;
+        if (s.kind === 'roll') {
+            s.rot += 0.25;
+        } else {
+            s.vy += s.g; s.y += s.vy;
+            if (s.y + s.h >= ROAD_Y) {
+                obstacles.push({ type:'patch', kind:'fire', worldX:cameraX + s.x - 22, w:60, h:10 });
+                spawnExplosion(s.x + 8, ROAD_Y - 6);
+                bossShots.splice(i, 1);
+                continue;
+            }
+        }
+        if (s.x + s.w < -40) { bossShots.splice(i, 1); continue; }
+        if (overlapsKart(s.x, s.y, s.w, s.h)) {
+            if (kart.boostTimer > 0) { spawnExplosion(s.x + s.w / 2, s.y + s.h / 2); bossShots.splice(i, 1); continue; }
+            hurtKart(HIT_DAMAGE, s.x + s.w / 2, s.y + s.h / 2);
+        }
+    }
+
+    // Kart vs boss body
+    if (!boss || isDying) return;
+    if (!overlapsKart(b.x + 4, b.y, b.w - 8, b.h)) {
+        // Boost-ram reaches a boss sitting right in front of the kart
+        if (kart.boostTimer > 0 && b.x < KART_SCREEN_X + kart.w + 30 && b.x + b.w > KART_SCREEN_X) hitBoss();
+        return;
+    }
+    var fromAbove = kart.dy > 0 && kart.y + kart.h - kart.dy <= b.y + 8;
+    if (fromAbove) {
+        if (b.state === 'dazed' || b.state === 'brake') hitBoss();
+        kart.y = b.y - kart.h; kart.dy = -9; kart.state = 'air'; kart.airJumps = 0;
+        sfxJump();
+    } else if (kart.boostTimer > 0) {
+        hitBoss();
+    } else if (b.state === 'dazed' || b.state === 'return') {
+        kart.y = b.y - kart.h; kart.dy = -6; kart.state = 'air';   // climb onto a stunned boss
+    } else {
+        hurtKart(HIT_DAMAGE, KART_SCREEN_X + kart.w, kart.y + kart.h / 2);
+        kart.dy = -8; kart.state = 'air';
+    }
+}
+
+function overlapsKart(x, y, w, h) {
+    return x < KART_SCREEN_X + kart.w - 4 && x + w > KART_SCREEN_X + 4 &&
+           y < kart.y + kart.h - 4 && y + h > kart.y + 4;
+}
+
+// ==================== BOSS DRAWING ====================
+function drawBoss() {
+    if (!boss) return;
+    var b = boss, x = Math.round(b.x), y = b.y + (b.state === 'idle' ? Math.sin(frameCount * 0.3) : 0);
+    ctx.save();
+    if (b.invuln > 0 && Math.floor(b.invuln / 4) % 2 === 0) ctx.globalAlpha = 0.55;
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillRect(x + 6, ROAD_Y - 3, b.w - 12, 5);
+    switch (b.idx) {
+        case 0: _drawBossTractor(x, y, b); break;
+        case 1: _drawBossBuggy(x, y, b);   break;
+        case 2: _drawBossRig(x, y, b);     break;
+        case 3: _drawBossPlow(x, y, b);    break;
+        case 4: _drawBossCosmos(x, y, b);  break;
+    }
+    if (b.hitFlash > 0) {
+        ctx.globalAlpha = b.hitFlash / 12 * 0.6;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(x, y, b.w, b.h);
+    }
+    ctx.restore();
+
+    // Brake-check warning: red tail lights and a big "!"
+    if (b.state === 'brake' && b.timer <= 50) {
+        if (Math.floor(b.timer / 6) % 2 === 0) {
+            ctx.fillStyle = '#ff2020';
+            ctx.fillRect(x - 2, y + b.h - 26, 6, 10);
+            ctx.font = 'bold 34px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#ff3030';
+            ctx.fillText('!', x + b.w / 2, y - 10);
+            ctx.textAlign = 'left';
+        }
+    }
+    // Dazed stars
+    if (b.state === 'dazed') {
+        for (var i = 0; i < 3; i++) {
+            var a = frameCount * 0.12 + i * 2.1;
+            ctx.fillStyle = '#ffee44';
+            ctx.fillRect(x + b.w / 2 + Math.cos(a) * 26 - 3, y - 12 + Math.sin(a) * 6, 6, 6);
+        }
+    }
+}
+
+function _drawWheel(cx, cy, r) {
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    ctx.fillStyle = '#3a3a3a';
+    ctx.fillRect(cx - r + 3, cy - r + 3, r * 2 - 6, r * 2 - 6);
+    ctx.fillStyle = '#888888';
+    ctx.fillRect(cx - 3, cy - 3, 6, 6);
+}
+
+function _drawBossDriver(x, y, body, eye) {
+    ctx.fillStyle = body;
+    ctx.fillRect(x, y, 14, 12);
+    ctx.fillStyle = eye || '#ff2020';
+    ctx.fillRect(x + 8, y + 3, 4, 3);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x + 6, y + 1, 7, 2);               // angry brow
+}
+
+function _drawBossTractor(x, y, b) {
+    ctx.fillStyle = '#2e7d32';
+    ctx.fillRect(x + 24, y + 22, 66, 24);            // body
+    ctx.fillStyle = '#43a047';
+    ctx.fillRect(x + 24, y + 22, 66, 5);
+    ctx.fillStyle = '#1b5e20';
+    ctx.fillRect(x + 6, y + 8, 30, 30);              // cab
+    ctx.fillStyle = '#90caf9';
+    ctx.fillRect(x + 10, y + 12, 22, 14);            // window
+    _drawBossDriver(x + 14, y + 14, '#f5c842');
+    ctx.fillStyle = '#d4a020';
+    ctx.fillRect(x + 10, y + 8, 22, 4);              // straw hat
+    ctx.fillStyle = '#555555';
+    ctx.fillRect(x + 80, y, 6, 22);                  // exhaust stack
+    if (frameCount % 6 === 0) spawnParticle(x + 83, y, 0.5, -1.5, 30, '#666666', 4);
+    _drawWheel(x + 22, y + b.h - 18, 18);
+    _drawWheel(x + 80, y + b.h - 11, 11);
+}
+
+function _drawBossBuggy(x, y, b) {
+    ctx.fillStyle = '#c8a050';
+    ctx.fillRect(x + 8, y + 26, 80, 12);             // frame
+    ctx.fillStyle = '#8a6a30';
+    ctx.fillRect(x + 20, y + 4, 4, 24);              // roll bars
+    ctx.fillRect(x + 56, y + 4, 4, 24);
+    ctx.fillRect(x + 20, y + 4, 40, 4);
+    _drawBossDriver(x + 32, y + 12, '#2a2218');
+    ctx.fillStyle = '#cc2200';
+    ctx.fillRect(x + 36, y + 6, 10, 8);              // vulture head
+    ctx.fillStyle = '#ff6600';
+    ctx.fillRect(x + 78, y + 18, 10, 8);             // headlight
+    _drawWheel(x + 18, y + b.h - 13, 13);
+    _drawWheel(x + 74, y + b.h - 13, 13);
+}
+
+function _drawBossRig(x, y, b) {
+    ctx.fillStyle = '#9e9e9e';
+    ctx.fillRect(x, y + 6, 64, 44);                  // trailer
+    ctx.fillStyle = '#bdbdbd';
+    ctx.fillRect(x, y + 6, 64, 6);
+    ctx.fillStyle = '#c62828';
+    ctx.fillRect(x + 66, y + 14, 44, 38);            // cab
+    ctx.fillStyle = '#e53935';
+    ctx.fillRect(x + 66, y + 14, 44, 6);
+    ctx.fillStyle = '#90caf9';
+    ctx.fillRect(x + 84, y + 20, 20, 14);
+    _drawBossDriver(x + 88, y + 22, '#888888', '#ffee00');
+    ctx.fillStyle = '#e0e0e0';
+    ctx.fillRect(x + 104, y + 38, 8, 10);            // chrome grill
+    ctx.fillStyle = '#777777';
+    ctx.fillRect(x + 70, y, 5, 16);                  // stack
+    _drawWheel(x + 14, y + b.h - 11, 11);
+    _drawWheel(x + 42, y + b.h - 11, 11);
+    _drawWheel(x + 92, y + b.h - 11, 11);
+}
+
+function _drawBossPlow(x, y, b) {
+    ctx.fillStyle = '#ef6c00';
+    ctx.fillRect(x + 10, y + 20, 70, 26);            // body
+    ctx.fillStyle = '#ff9800';
+    ctx.fillRect(x + 10, y + 20, 70, 5);
+    ctx.fillStyle = '#e65100';
+    ctx.fillRect(x + 20, y + 4, 34, 18);             // cab
+    ctx.fillStyle = '#b3e5fc';
+    ctx.fillRect(x + 24, y + 7, 26, 12);
+    _drawBossDriver(x + 30, y + 8, '#e0e8f0');
+    ctx.fillStyle = '#9e9e9e';
+    ctx.beginPath();                                 // plow blade
+    ctx.moveTo(x + 80, y + 18); ctx.lineTo(x + 104, y + 52); ctx.lineTo(x + 80, y + 56);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ffeb3b';
+    ctx.fillRect(x + 34, y, 6, 4);                   // beacon
+    _drawWheel(x + 26, y + b.h - 12, 12);
+    _drawWheel(x + 66, y + b.h - 12, 12);
+}
+
+function _drawBossCosmos(x, y, b) {
+    var glow = 0.4 + 0.3 * Math.sin(frameCount * 0.2);
+    ctx.fillStyle = 'rgba(100,255,150,' + glow + ')';
+    ctx.fillRect(x + 10, y + b.h - 8, b.w - 20, 6); // hover glow
+    ctx.fillStyle = '#9fa8da';
+    ctx.fillRect(x + 4, y + 26, 92, 18);             // hull
+    ctx.fillStyle = '#c5cae9';
+    ctx.fillRect(x, y + 30, 100, 8);
+    ctx.fillStyle = 'rgba(120,255,180,0.55)';
+    ctx.fillRect(x + 30, y + 4, 40, 24);             // dome
+    _drawBossDriver(x + 43, y + 12, '#44cc44', '#ffffff');
+    ctx.fillStyle = frameCount % 16 < 8 ? '#ff4444' : '#ffff44';
+    for (var i = 0; i < 5; i++) ctx.fillRect(x + 10 + i * 18, y + 32, 5, 4);
+}
+
+function drawBossShots() {
+    for (var i = 0; i < bossShots.length; i++) {
+        var s = bossShots[i];
+        ctx.save();
+        ctx.translate(s.x + s.w / 2, s.y + s.h / 2);
+        if (s.kind === 'roll') {
+            ctx.rotate(-s.rot);
+            ctx.fillStyle = boss ? boss.def.roll : '#888888';
+            ctx.fillRect(-12, -12, 24, 24);
+            ctx.fillStyle = 'rgba(0,0,0,0.25)';
+            ctx.fillRect(-12, -3, 24, 6);
+            ctx.fillRect(-3, -12, 6, 24);
+        } else {
+            ctx.fillStyle = '#ff6600';
+            ctx.fillRect(-8, -8, 16, 16);
+            ctx.fillStyle = '#ffee44';
+            ctx.fillRect(-4, -4, 8, 8);
+            if (frameCount % 2 === 0) spawnParticle(s.x + 8, s.y + 8, 0, -0.5, 12, '#ff8800', 3);
+        }
+        ctx.restore();
+    }
+}
+
+function drawBossUI() {
+    if (!boss) return;
+    var bw = 300, bx = (W - bw) / 2, by = 92;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(bx - 4, by - 16, bw + 8, 30);
+    ctx.font = 'bold 11px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffcc66';
+    ctx.fillText(boss.def.name.toUpperCase(), W / 2, by - 4);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#331111';
+    ctx.fillRect(bx, by, bw, 8);
+    ctx.fillStyle = boss.phase === 2 ? '#ff3030' : boss.phase === 1 ? '#ff8800' : '#ffcc00';
+    ctx.fillRect(bx, by, bw * boss.hp / boss.maxHp, 8);
+    for (var i = 1; i < boss.maxHp; i++) {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(bx + bw * i / boss.maxHp - 1, by, 2, 8);
+    }
+}
+
 // ==================== RIVALS ====================
 // skill scales a rival's top speed relative to MAX_SPEED
 const RIVAL_DEFS = [
@@ -958,6 +1349,8 @@ function updateRivals() {
             if (r.y < H + 50) { r.dy += GRAVITY; r.y += r.dy; r.rot -= 0.25; r.worldX += 2; }
             continue;
         }
+
+        if (boss) { r.worldX += kartAdvance; continue; }   // the pack holds station during a boss duel
 
         var spd = rivalSpeed(r);
         if (r.boostTimer > 0) { spd += BOOST_SPEED * 0.8; r.boostTimer--; }
@@ -1113,6 +1506,7 @@ function upgradeDef(id) {
 
 // ==================== BIOME TRANSITION ====================
 function checkBiomeTransition() {
+    if (boss) return;   // the boss guards the way to the next biome
     var newIdx = 0;
     for (var i = BIOMES.length - 1; i >= 0; i--) {
         if (distancePx >= BIOMES[i].startDist) { newIdx = i; break; }
@@ -1146,7 +1540,7 @@ function checkAchievements() {
         nextMilestoneIdx++;
     }
 
-    if (distancePx >= VICTORY_DIST) {
+    if (distancePx >= VICTORY_DIST && !boss) {
         if (gameState === 'PLAYING') {
             unlockAchievement('victory');
             finishPos = racePosition();
@@ -1202,7 +1596,7 @@ function updatePhysics() {
 
     // Biome hazard under the kart (sand/oil/ice act on the wheels, zero-G on the whole column)
     var patch = patchUnderKart();
-    kart.surface = patch && (patch.kind === 'lowg' || kart.state === 'ground') ? patch.kind : null;
+    kart.surface = patch && patch.kind !== 'fire' && (patch.kind === 'lowg' || kart.state === 'ground') ? patch.kind : null;
     if (kart.surface === 'oil' && !patch.used) {
         patch.used = true;
         kart.spin  = 40;
@@ -1210,6 +1604,8 @@ function updatePhysics() {
         playTone(300, 'sawtooth', 0.08, 0.25);
     }
     if (kart.spin > 0) kart.spin--;
+    if (patch && patch.kind === 'fire' && kart.y + kart.h > ROAD_Y - 18)
+        hurtKart(20, KART_SCREEN_X + kart.w / 2, ROAD_Y - 6);
     var surfMul = kart.surface === 'sand' ? 0.6 : kart.surface === 'ice' ? 1.35 : 1;
     if (kart.surface === 'sand' && frameCount % 3 === 0) spawnDust(KART_SCREEN_X + 8, ROAD_Y - 2);
     if (kart.surface === 'ice' && frameCount % 4 === 0)
@@ -1221,16 +1617,17 @@ function updatePhysics() {
         BASE_SPEED + (kart.swiftMode ? 0.8 : 0) + distancePx * SPEED_ACCEL);
 
     // Active boost adds extra speed for boostTimer frames
+    kartAdvance = kart.speed * surfMul;
     if (kart.boostTimer > 0) {
-        var boostSpd = BOOST_SPEED + (activeUpgrades.indexOf('rocket_boost') !== -1 ? 2 : 0);
-        kart.worldX += boostSpd;
+        kartAdvance += BOOST_SPEED + (activeUpgrades.indexOf('rocket_boost') !== -1 ? 2 : 0);
         kart.boostTimer--;
         if (frameCount % 2 === 0) spawnBoostFX(KART_SCREEN_X - 4, kart.y + kart.h - 6);
     }
 
-    // Advance kart
-    kart.worldX += kart.speed * surfMul;
-    distancePx   = Math.max(0, kart.worldX - 200);
+    // Advance kart (course distance stands still while a boss blocks the road)
+    kart.worldX += kartAdvance;
+    if (boss) bossPx += kartAdvance;
+    distancePx   = Math.max(0, kart.worldX - 200 - bossPx);
     cameraX      = kart.worldX - KART_SCREEN_X;
 
     // Gravity
@@ -1317,6 +1714,7 @@ function updatePhysics() {
     if (kart.animTimer >= 8) { kart.animTimer = 0; kart.animFrame = (kart.animFrame + 1) % 4; }
 
     // Systems
+    checkBossTrigger();
     checkBiomeTransition();
     if (distancePx - lastUpgradePx >= UPGRADE_EVERY_PX) {
         lastUpgradePx += UPGRADE_EVERY_PX;
@@ -1385,6 +1783,7 @@ function startRun() {
     currentBiomeIdx = 0; lastUpgradePx = 0;
     activeUpgrades = []; noHitRun = true; upgradesTaken = 0; shieldBrokenAt = -1;
     rivalsKO = 0; finishPos = 0; countdown = 180;
+    boss = null; bossShots = []; bossDone = [false, false, false, false, false]; bossesBeaten = 0; bossPx = 0;
     toasts = []; shakeFrames = 0; shakeMagnitude = 0;
     isDying = false; runFrames = 0; deathTimer = 0; frameCount = 0;
     biomeFlash = 0; nextMilestoneIdx = 0; hpRegenTimer = 0; lastVictoryFirework = 0; victoryInputLock = 0;
@@ -1787,6 +2186,7 @@ function generateObstacles() {
         var roll = Math.random();
         var obj  = null;
         var hazard = BIOMES[currentBiomeIdx].hazard;
+        if (boss) roll = roll < 0.5 ? 0 : 1;   // boss fights: only ramps on the road
         // Ramps more common than barriers; potholes and biome hazards sprinkled in
         if (roll < 0.36) {
             // ramp: small / medium / large
@@ -1910,6 +2310,17 @@ function drawObstacles() {
             ctx.fillRect(ox + Math.floor(o.w * 0.35), ROAD_Y - Math.floor(slope * 0.55), 8, 4);
             ctx.fillRect(ox + Math.floor(o.w * 0.55), ROAD_Y - Math.floor(slope * 0.72), 8, 4);
 
+        } else if (o.type === 'barrier' && o.drum) {
+            if (o.smashed) continue;
+            var dt = ROAD_Y - o.h;
+            ctx.fillStyle = '#3a5a8a';
+            ctx.fillRect(ox, dt, o.w, o.h);
+            ctx.fillStyle = '#5a7aaa';
+            ctx.fillRect(ox, dt + 6, o.w, 4);
+            ctx.fillRect(ox, dt + o.h - 10, o.w, 4);
+            ctx.fillStyle = '#ffcc00';
+            ctx.fillRect(ox + 6, dt + 16, o.w - 12, 8);
+
         } else if (o.type === 'barrier') {
             if (o.smashed) continue;
             var bt = ROAD_Y - o.h;
@@ -1968,6 +2379,14 @@ function drawPatch(o, ox) {
         ctx.fillRect(ox, ROAD_Y - 2, o.w, 10);
         ctx.fillStyle = '#ffffff';
         for (i = 6; i < o.w - 10; i += 22) ctx.fillRect(ox + i, ROAD_Y + 1, 12, 2);
+    } else if (o.kind === 'fire') {
+        for (i = 0; i < o.w; i += 8) {
+            var fh = 10 + Math.sin(frameCount * 0.4 + i) * 5 + (i % 16 ? 4 : 0);
+            ctx.fillStyle = '#ff5500';
+            ctx.fillRect(ox + i, ROAD_Y - fh, 8, fh + 4);
+            ctx.fillStyle = '#ffcc00';
+            ctx.fillRect(ox + i + 2, ROAD_Y - fh * 0.5, 4, fh * 0.5 + 2);
+        }
     } else if (o.kind === 'lowg') {
         var pulse = 0.5 + 0.5 * Math.sin(frameCount * 0.1);
         ctx.fillStyle = 'rgba(170,90,255,0.07)';
@@ -2480,7 +2899,7 @@ function drawToasts() {
         ctx.font  = 'bold 12px Courier New';
         var tw    = ctx.measureText(t.text).width + 22;
         var tx    = W - tw - 10;
-        var ty    = (endScreen ? 362 : 100) + i * 34;
+        var ty    = (endScreen ? 362 : boss ? 128 : 100) + i * 34;
 
         ctx.globalAlpha = alpha;
         ctx.fillStyle   = 'rgba(12,10,28,0.92)';
@@ -2607,7 +3026,7 @@ function pauseGame() {
 function resumeGame() {
     if (gameState !== 'PAUSED') return;
     gameState = 'PLAYING';
-    startMusic(BIOMES[currentBiomeIdx].musicIdx);
+    startMusic(boss ? 5 : BIOMES[currentBiomeIdx].musicIdx);
 }
 
 function quitToTitle() {
@@ -2827,6 +3246,7 @@ function loop() {
                 updateCollectibles();
                 updateEnemies();
                 updateRivals();
+                updateBoss();
             }
         }
         if (gameState !== 'PAUSED') updateParticles();
@@ -2838,8 +3258,11 @@ function loop() {
         drawCollectibles();
         drawEnemies();
         drawRivals();
+        drawBoss();
+        drawBossShots();
         if (!isDying) drawKart(kart, KART_SCREEN_X, kart.y);
         drawParticles();
+        drawBossUI();
         if (gameState === 'PLAYING') drawSpeedLines();
         drawBiomeFlash();
         drawCountdown();
@@ -2880,6 +3303,7 @@ window.addEventListener('resize', fitToScreen);
 
 // ==================== ENEMY SPAWNING ====================
 function spawnEnemies() {
+    if (boss) { nextEnemyX = Math.max(nextEnemyX, cameraX + GEN_AHEAD + 300); return; }
     while (nextEnemyX < cameraX + GEN_AHEAD) {
         var b    = BIOMES[currentBiomeIdx];
         var pool = b.enemies;
