@@ -130,6 +130,15 @@
             margin-top: 2px;
         }
 
+        #posDisplay {
+            color: #ffcc66;
+            font-size: 14px;
+            font-weight: bold;
+            text-shadow: 1px 1px 0 #000;
+            letter-spacing: 1px;
+            margin-top: 2px;
+        }
+
         #hudTopRight {
             position: absolute;
             top: 8px; right: 10px;
@@ -215,6 +224,7 @@
         <div id="hudTopCenter">
             <div id="distanceDisplay">0m</div>
             <div id="biomeDisplay"></div>
+            <div id="posDisplay"></div>
         </div>
         <div id="hudTopRight">
             <div id="cornDisplay">&#x1F33D; 0</div>
@@ -509,7 +519,10 @@ const ACHIEVEMENT_DEFS = [
     { id:'upgrade_3',      name:'Pit Crew',         desc:'Take 3 upgrades in one run'            },
     { id:'no_hit_500',     name:'Clean Run',        desc:'Reach 500m without taking damage'      },
     { id:'victory',        name:'Finish Line!',     desc:'Race all the way to victory'           },
-    { id:'trick_2',        name:'Stuntmaster',      desc:'Land a double flip cleanly'            }
+    { id:'trick_2',        name:'Stuntmaster',      desc:'Land a double flip cleanly'            },
+    { id:'ko_rivals',      name:'Demolition Derby', desc:'Knock out 3 rivals in one run'         },
+    { id:'podium',         name:'Podium Finish',    desc:'Finish the race in the top 3'          },
+    { id:'champion',       name:'Champion',         desc:'Finish the race in 1st place'          }
 ];
 
 // ==================== STARTING ABILITY POOL ====================
@@ -549,6 +562,11 @@ const ABILITY_POOL = [
         name:'Stunt Duck', unlock:'trick_2', paint:['#8e44ad','#b06ad8','#4a1a60'],
         desc:'Start with Off-Road Tires and Monster Wheels.',
         apply:function() { activeUpgrades.push('off_road_tires', 'big_wheels'); }
+    },
+    {
+        name:'Bruiser Duck', unlock:'ko_rivals', paint:['#5a3a2a','#7a5a4a','#2a1a10'],
+        desc:'Take only 15 damage per hit and start with a Roll Cage.',
+        apply:function() { kart.tough = true; kart.shield = true; activeUpgrades.push('roll_cage'); }
     },
     {
         name:'Golden Duck', unlock:'victory', paint:['#e0b020','#fff070','#a07000'],
@@ -642,6 +660,10 @@ let lastUpgradePx   = 0;
 let activeUpgrades  = [];
 let noHitRun        = true;
 let upgradesTaken   = 0;
+let rivals          = [];
+let rivalsKO        = 0;
+let finishPos       = 0;      // race position when the finish line was crossed
+let countdown       = 0;      // frames of the 3-2-1 start countdown left
 let shieldBrokenAt  = -1;     // distancePx when the Roll Cage broke (-1 = intact)
 
 // Screen shake
@@ -732,6 +754,11 @@ function formatTime(ms) {
 }
 
 function distMeters() { return Math.floor(distancePx / 10); }
+
+function ordinal(n) {
+    var sfx = (n % 100 >= 11 && n % 100 <= 13) ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th';
+    return n + sfx;
+}
 
 // ==================== PARTICLE SYSTEM ====================
 function spawnParticle(x, y, dx, dy, life, color, size) {
@@ -877,6 +904,152 @@ function spawnBiomeParticles() {
     }
 }
 
+// ==================== RIVALS ====================
+// skill scales a rival's top speed relative to MAX_SPEED
+const RIVAL_DEFS = [
+    { name:'Mallard Max',   paint:['#2e7d32','#4caf50','#1b4d1e'], driver:'#8a6a4a', skill:0.97 },
+    { name:'Goose Gloria',  paint:['#d8d8d8','#ffffff','#888888'], driver:'#eeeeee', skill:0.93 },
+    { name:'Swan Svetlana', paint:['#ff77aa','#ffaacc','#aa3366'], driver:'#ffffff', skill:0.95 },
+    { name:'Teal Terry',    paint:['#00897b','#26c6da','#004d40'], driver:'#c89820', skill:0.90 },
+    { name:'Loon Lars',     paint:['#2a2a2a','#4a4a4a','#000000'], driver:'#666666', skill:0.88 },
+    { name:'Pelican Pete',  paint:['#ff9800','#ffb74d','#a65c00'], driver:'#f0e0c0', skill:0.92 },
+    { name:'Coot Carla',    paint:['#5c6bc0','#7986cb','#283593'], driver:'#333344', skill:0.99 }
+];
+
+function spawnRivals() {
+    var defs = shuffleArray(RIVAL_DEFS.slice());
+    rivals = defs.map(function(d, i) {
+        return { def:d, worldX:kart.worldX + 140 + i * 200, y:ROAD_Y - 32, w:52, h:32, dy:0,
+                 state:'ground', ko:false, boostTimer:0, boostCd:300, animFrame:0, rot:0,
+                 paint:d.paint, driver:d.driver };
+    });
+}
+
+function racePosition() {
+    var ahead = 0;
+    for (var i = 0; i < rivals.length; i++) if (!rivals[i].ko && rivals[i].worldX > kart.worldX) ahead++;
+    return ahead + 1;
+}
+
+function rivalSpeed(r) {
+    var ramp = (BASE_SPEED + (r.worldX - 200) * SPEED_ACCEL) * r.def.skill + 0.4;
+    var spd  = Math.min(MAX_SPEED * r.def.skill, ramp);
+    if (r.worldX - kart.worldX > 3000) spd *= 0.93;   // leaders ease off so the pack stays catchable
+    return spd;
+}
+
+function knockOutRival(r) {
+    r.ko = true; r.dy = -8; r.state = 'air'; r.boostTimer = 0;
+    rivalsKO++;
+    addCorn(10);
+    var sx = r.worldX - cameraX;
+    spawnExplosion(sx + r.w / 2, r.y + r.h / 2);
+    spawnFeathers(sx + 30, r.y + 6);
+    sfxKill();
+    shakeFrames = 6; shakeMagnitude = 5;
+    toasts.push({ text:'KO! ' + r.def.name + ' +10 corn', timer:150 });
+    if (rivalsKO >= 3) unlockAchievement('ko_rivals');
+}
+
+function updateRivals() {
+    for (var i = 0; i < rivals.length; i++) {
+        var r = rivals[i];
+        if (r.ko) {
+            if (r.y < H + 50) { r.dy += GRAVITY; r.y += r.dy; r.rot -= 0.25; r.worldX += 2; }
+            continue;
+        }
+
+        var spd = rivalSpeed(r);
+        if (r.boostTimer > 0) { spd += BOOST_SPEED * 0.8; r.boostTimer--; }
+        r.worldX += spd;
+        r.animFrame = Math.floor((frameCount + i * 3) / 8) % 4;
+
+        // Hop barriers just ahead
+        if (r.state === 'ground') {
+            for (var oi = 0; oi < obstacles.length; oi++) {
+                var o = obstacles[oi];
+                var ahead = o.worldX - (r.worldX + r.w);
+                if (o.type === 'barrier' && !o.smashed && ahead > 0 && ahead < 8 + spd * 4) {
+                    r.dy = -9; r.state = 'air'; break;
+                }
+            }
+        }
+        r.dy += GRAVITY;
+        r.y  += r.dy;
+        if (r.y >= ROAD_Y - r.h) { r.y = ROAD_Y - r.h; r.dy = 0; r.state = 'ground'; }
+
+        // A rival close behind will try to boost-ram past you
+        var behind = kart.worldX - r.worldX;
+        if (r.boostCd > 0) r.boostCd--;
+        else if (behind > 40 && behind < 260 && Math.random() < 0.012) {
+            r.boostTimer = 30; r.boostCd = 600;
+            toasts.push({ text:r.def.name + ' is boosting up behind you!', timer:90 });
+            playTone(200, 'sawtooth', 0.08, 0.3);
+        }
+
+        // Contact with the player
+        if (isDying || !kart.alive) continue;
+        var hitX = r.worldX < kart.worldX + kart.w - 8 && r.worldX + r.w - 8 > kart.worldX;
+        var hitY = r.y < kart.y + kart.h - 6 && r.y + r.h - 6 > kart.y;
+        if (!hitX || !hitY) continue;
+        var stomp = kart.dy > 1.5 && kart.y + kart.h <= r.y + 14;
+        if (kart.boostTimer > 0 || stomp) {
+            knockOutRival(r);
+            if (stomp) { kart.dy = -6; kart.state = 'air'; }
+        } else if (r.boostTimer > 0) {
+            hurtKart(15, r.worldX - cameraX + r.w, r.y + 16);
+            r.boostTimer = 0;
+        }
+    }
+}
+
+function drawRivals() {
+    var nearest = null;
+    for (var i = 0; i < rivals.length; i++) {
+        var r  = rivals[i];
+        var sx = r.worldX - cameraX;
+        if (r.ko && r.y >= H + 50) continue;
+        if (sx > W && !r.ko && (!nearest || r.worldX < nearest.worldX)) nearest = r;
+        if (sx + r.w < -20 || sx > W + 20) continue;
+        if (r.boostTimer > 0 && frameCount % 2 === 0) spawnBoostFX(sx - 4, r.y + r.h - 8);
+        drawKart(r, sx, r.y);
+        if (!r.ko) {
+            ctx.font = 'bold 10px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#000000';
+            ctx.fillText(r.def.name, sx + 27, r.y - 7);
+            ctx.fillStyle = r.def.paint[1];
+            ctx.fillText(r.def.name, sx + 26, r.y - 8);
+            ctx.textAlign = 'left';
+        }
+    }
+    // Arrow to the next rival ahead when it's off screen
+    if (nearest && nearest.worldX - kart.worldX < 2500) {
+        var m = Math.round((nearest.worldX - kart.worldX) / 10);
+        var label = nearest.def.name + ' ' + m + 'm \u25B6';
+        ctx.font = 'bold 11px Courier New';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(W - ctx.measureText(label).width - 16, ROAD_Y - 78, ctx.measureText(label).width + 12, 18);
+        ctx.fillStyle = nearest.def.paint[1];
+        ctx.fillText(label, W - 10, ROAD_Y - 65);
+        ctx.textAlign = 'left';
+    }
+}
+
+function drawCountdown() {
+    if (countdown <= 0 && countdown > -40) { countdown--; }
+    if (countdown <= -40 || gameState !== 'PLAYING') return;
+    var label = countdown > 0 ? String(Math.ceil(countdown / 60)) : 'GO!';
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 90px Courier New';
+    ctx.fillStyle = '#000000';
+    ctx.fillText(label, W / 2 + 4, 224);
+    ctx.fillStyle = countdown > 0 ? '#ffcc00' : '#44ff88';
+    ctx.fillText(label, W / 2, 220);
+    ctx.textAlign = 'left';
+}
+
 // ==================== HUD ====================
 function updateHUD() {
     var pct  = Math.max(0, kart.hp / kart.maxHp * 100);
@@ -893,6 +1066,10 @@ function updateHUD() {
     document.getElementById('biomeDisplay').textContent    = BIOMES[currentBiomeIdx].name;
     document.getElementById('cornDisplay').textContent     = '\uD83C\uDF3D ' + corn;
     document.getElementById('killDisplay').textContent     = '\uD83D\uDC80 ' + kills;
+    var pos = racePosition();
+    var posEl = document.getElementById('posDisplay');
+    posEl.textContent = 'POS ' + pos + ' / ' + (RIVAL_DEFS.length + 1);
+    posEl.style.color = pos === 1 ? '#ffd700' : pos <= 3 ? '#ffcc66' : '#ff8866';
 
     updateUpgradeChips();
 }
@@ -972,6 +1149,9 @@ function checkAchievements() {
     if (distancePx >= VICTORY_DIST) {
         if (gameState === 'PLAYING') {
             unlockAchievement('victory');
+            finishPos = racePosition();
+            if (finishPos <= 3) unlockAchievement('podium');
+            if (finishPos === 1) unlockAchievement('champion');
             stopMusic();
             sfxVictory();
             recordRun();
@@ -1010,6 +1190,12 @@ function hurtKart(amount, fxX, fxY) {
 function updatePhysics() {
     if (isDying) {
         if (--deathTimer <= 0) gameOver();
+        return;
+    }
+    if (countdown > 0) {
+        if (countdown % 60 === 0) playTone(countdown === 60 ? 660 : 440, 'square', 0.10, 0.15);
+        if (--countdown === 0) playTone(880, 'square', 0.12, 0.3);
+        updateHUD();
         return;
     }
     runFrames++;
@@ -1198,6 +1384,7 @@ function startRun() {
     corn = 0; cornFrac = 0; rerollCost = 15; kills = 0; distancePx = 0;
     currentBiomeIdx = 0; lastUpgradePx = 0;
     activeUpgrades = []; noHitRun = true; upgradesTaken = 0; shieldBrokenAt = -1;
+    rivalsKO = 0; finishPos = 0; countdown = 180;
     toasts = []; shakeFrames = 0; shakeMagnitude = 0;
     isDying = false; runFrames = 0; deathTimer = 0; frameCount = 0;
     biomeFlash = 0; nextMilestoneIdx = 0; hpRegenTimer = 0; lastVictoryFirework = 0; victoryInputLock = 0;
@@ -1210,6 +1397,7 @@ function startRun() {
     nextCollectibleX = kart.worldX + 400;
 
     cameraX = kart.worldX - KART_SCREEN_X;
+    spawnRivals();
     startMusic(0);
     if (meta.totalRuns < 3) toasts.push({ text:'Hold \u2193 in the air to flip!', timer:300 });
     gameState = 'PLAYING';
@@ -2166,7 +2354,7 @@ function drawGarageScreen() {
 
 // ==================== DRAW: DEATH SCREEN (WIPEOUT) ====================
 function drawRunStats(py, accent) {
-    var pw = 450, ph = 236, px = (W - pw) / 2;
+    var pw = 450, ph = 250, px = (W - pw) / 2;
     ctx.fillStyle = 'rgba(20,10,10,0.92)';
     ctx.fillRect(px, py, pw, ph);
     ctx.strokeStyle = accent;
@@ -2178,12 +2366,13 @@ function drawRunStats(py, accent) {
         ['DISTANCE', distMeters() + 'm'],
         ['TIME',     formatTime(runFrames * 1000 / 60)],
         ['ZONE',     BIOMES[currentBiomeIdx].name],
+        ['POSITION', ordinal(finishPos || racePosition()) + (rivalsKO ? '   (' + rivalsKO + ' KO)' : '')],
         ['ENEMIES',  kills + ''],
         ['CORN',     corn + '  \u2192  bank ' + meta.cornBank]
     ];
     ctx.font = '14px Courier New';
     for (var ri = 0; ri < rows.length; ri++) {
-        var ry = py + 28 + ri * 30;
+        var ry = py + 26 + ri * 26;
         ctx.fillStyle = '#777788';
         ctx.textAlign = 'left';
         ctx.fillText(rows[ri][0], px + 22, ry);
@@ -2194,13 +2383,13 @@ function drawRunStats(py, accent) {
 
     ctx.textAlign = 'left';
     ctx.fillStyle = '#777788';
-    ctx.fillText('UPGRADES', px + 22, py + 178);
+    ctx.fillText('UPGRADES', px + 22, py + 196);
     if (activeUpgrades.length === 0) {
         ctx.fillStyle = '#555566';
-        ctx.fillText('none', px + 130, py + 178);
+        ctx.fillText('none', px + 130, py + 196);
     }
     for (var ui = 0; ui < activeUpgrades.length; ui++) {
-        if (ICON_ART[activeUpgrades[ui]]) drawPixelIcon(ICON_ART[activeUpgrades[ui]], px + 130 + ui * 22, py + 164, 2);
+        if (ICON_ART[activeUpgrades[ui]]) drawPixelIcon(ICON_ART[activeUpgrades[ui]], px + 130 + ui * 22, py + 182, 2);
     }
 
     if (newBest) {
@@ -2255,7 +2444,7 @@ function drawVictoryScreen() {
     ctx.fillText('FINISH LINE!', W/2,     60);
     ctx.font = 'bold 18px Courier New';
     ctx.fillStyle = '#ff8800';
-    ctx.fillText('YOU REACHED THE END OF THE ROAD!', W/2, 90);
+    ctx.fillText('YOU FINISHED ' + ordinal(finishPos).toUpperCase() + ' OF ' + (RIVAL_DEFS.length + 1) + '!', W/2, 90);
     ctx.textAlign = 'left';
 
     // Periodic fireworks celebration
@@ -2279,8 +2468,10 @@ function drawVictoryScreen() {
 
 // ==================== DRAW: TOASTS ====================
 function drawToasts() {
-    if (toasts.length > 4) toasts.splice(0, toasts.length - 4);
-    for (var i = toasts.length - 1; i >= 0; i--) {
+    // End screens queue toasts two at a time in the gap above the buttons
+    var endScreen = gameState === 'DEAD' || gameState === 'VICTORY';
+    if (!endScreen && toasts.length > 4) toasts.splice(0, toasts.length - 4);
+    for (var i = Math.min(toasts.length, endScreen ? 2 : 4) - 1; i >= 0; i--) {
         var t = toasts[i];
         if (gameState !== 'PAUSED') t.timer--;
         if (t.timer <= 0) { toasts.splice(i, 1); continue; }
@@ -2289,7 +2480,7 @@ function drawToasts() {
         ctx.font  = 'bold 12px Courier New';
         var tw    = ctx.measureText(t.text).width + 22;
         var tx    = W - tw - 10;
-        var ty    = (gameState === 'DEAD' || gameState === 'VICTORY' ? 10 : 100) + i * 34;
+        var ty    = (endScreen ? 362 : 100) + i * 34;
 
         ctx.globalAlpha = alpha;
         ctx.fillStyle   = 'rgba(12,10,28,0.92)';
@@ -2356,8 +2547,8 @@ function drawAchievementsScreen() {
     ctx.fillText(meta.achievements.length + ' / ' + ACHIEVEMENT_DEFS.length + ' unlocked   \u00B7   ' +
         unlockedAbilities().length + ' / ' + ABILITY_POOL.length + ' karts', W / 2, 66);
 
-    var cw = 372, ch = 42, gx = 14, gy = 7;
-    var x0 = (W - cw * 2 - gx) / 2, y0 = 80;
+    var cw = 372, ch = 36, gx = 14, gy = 5;
+    var x0 = (W - cw * 2 - gx) / 2, y0 = 76;
     for (var i = 0; i < ACHIEVEMENT_DEFS.length; i++) {
         var a   = ACHIEVEMENT_DEFS[i];
         var got = hasAchievement(a.id);
@@ -2371,22 +2562,22 @@ function drawAchievementsScreen() {
         ctx.textAlign = 'center';
         ctx.font = 'bold 18px Courier New';
         ctx.fillStyle = got ? '#ffcc66' : '#44445a';
-        ctx.fillText(got ? '\u2713' : '?', cx + 18, cy + 27);
+        ctx.fillText(got ? '\u2713' : '?', cx + 18, cy + 24);
 
         ctx.textAlign = 'left';
         ctx.font = 'bold 13px Courier New';
         ctx.fillStyle = got ? '#ffffff' : '#77778a';
-        ctx.fillText(a.name, cx + 36, cy + 18);
+        ctx.fillText(a.name, cx + 36, cy + 15);
         ctx.font = '11px Courier New';
         ctx.fillStyle = got ? '#d8c890' : '#55556a';
-        ctx.fillText(a.desc, cx + 36, cy + 33);
+        ctx.fillText(a.desc, cx + 36, cy + 29);
 
         var ab = abilityUnlockedBy(a.id);
         if (ab) {
             ctx.textAlign = 'right';
             ctx.font = 'bold 10px Courier New';
             ctx.fillStyle = got ? '#7fe0ff' : '#3f6a7a';
-            ctx.fillText('UNLOCKS ' + ab.name.toUpperCase(), cx + cw - 8, cy + 18);
+            ctx.fillText('UNLOCKS ' + ab.name.toUpperCase(), cx + cw - 8, cy + 15);
         }
     }
     ctx.textAlign = 'left';
@@ -2632,8 +2823,11 @@ function loop() {
 
         if (gameState === 'PLAYING') {
             updatePhysics();
-            updateCollectibles();
-            updateEnemies();
+            if (countdown <= 0) {
+                updateCollectibles();
+                updateEnemies();
+                updateRivals();
+            }
         }
         if (gameState !== 'PAUSED') updateParticles();
 
@@ -2643,10 +2837,12 @@ function loop() {
         drawObstacles();
         drawCollectibles();
         drawEnemies();
+        drawRivals();
         if (!isDying) drawKart(kart, KART_SCREEN_X, kart.y);
         drawParticles();
         if (gameState === 'PLAYING') drawSpeedLines();
         drawBiomeFlash();
+        drawCountdown();
         drawToasts();
 
         if (gameState === 'UPGRADE') drawUpgradeScreen();
