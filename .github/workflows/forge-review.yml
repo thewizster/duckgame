@@ -1,21 +1,28 @@
 name: Forge review
 
-# Runs on every push to a branch with an open PR (synchronize), plus open/reopen.
+# Review: every push to a branch with an open PR (synchronize), plus open/reopen/ready.
+# Gate re-checks: label changes, submitted/dismissed reviews and new review comments
+# (comment edits can't change thread state, so they don't trigger). Actions has no
+# trigger for resolving a thread (pull_request_review_thread is webhook-only and would
+# invalidate this file), so after resolving, reply in a thread or re-run the gate.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
   pull_request_review:
     types: [submitted, dismissed]
   pull_request_review_comment:
-    types: [created, edited]
+    types: [created]
 
 permissions:
   contents: read
   pull-requests: write
 
+# Review runs (pull_request) never cancel each other. Re-check bursts (review/comment
+# events, e.g. replying to many threads) share a separate group and collapse to the
+# latest run; the gate is a cheap, idempotent GraphQL read.
 concurrency:
-  group: forge-review-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
+  group: forge-review-${{ github.event.pull_request.number }}-${{ github.event_name == 'pull_request' && 'review' || 'recheck' }}
+  cancel-in-progress: ${{ github.event_name != 'pull_request' }}
 
 jobs:
   review:
