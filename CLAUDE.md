@@ -177,7 +177,7 @@ Run state (reset in `startRun()`): `fish`, `kills`, `distancePx`, `currentBiomeI
 | STARTING ABILITY POOL | `ABILITY_POOL` karts (`unlock`, `paint` [body, highlight, shadow], `apply`) |
 | GARAGE / META-PROGRESSION | `GARAGE_DEFS` perks bought with `meta.cornBank`; `meta.garage`, `meta.gpUnlocked` |
 | BOSS SYSTEM / BOSS DRAWING | `BOSS_DEFS`, `bossTriggerPx()`, `spawnBoss()`, `updateBoss()` state machine, `hitBoss()`, `defeatBoss()`, `drawBoss*()` |
-| RIVALS | `RIVAL_DEFS` (`skill` scales top speed), `updateRivals()`, `knockOutRival()`, `racePosition()`, countdown |
+| RIVALS | `RIVAL_DEFS` (`skill` scales pace relative to the player; `rivalSpeed()` rubber-bands), `updateRivals()`, `knockOutRival()`, `racePosition()`, countdown |
 | PHYSICS | `updatePhysics()`: countdown gate, hazards (`patchUnderKart()`), speed/boost, gravity, floor, flips, `landKart()` |
 | UPGRADE SELECTION | `upgradePool()`, `triggerUpgrade()`, `applyUpgrade()`, pit-stop `rerollUpgrades()` / `repairKart()` |
 | OBSTACLE GENERATION / COLLISION / DRAWING | `ramp` (ridden: `kart.onRamp`), `barrier` (`drum` = boss drop, `smashed` by boost), `pothole`, `patch` (`kind`: sand / oil / ice / lowg / fire) |

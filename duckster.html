@@ -1307,7 +1307,7 @@ function drawBossUI() {
 }
 
 // ==================== RIVALS ====================
-// skill scales a rival's top speed relative to MAX_SPEED; the top two outpace an un-upgraded kart
+// skill scales a rival's pace relative to an un-upgraded kart; the top two edge ahead of it
 const RIVAL_DEFS = [
     { name:'Mallard Max',   paint:['#2e7d32','#4caf50','#1b4d1e'], driver:'#8a6a4a', skill:1.01 },
     { name:'Goose Gloria',  paint:['#d8d8d8','#ffffff','#888888'], driver:'#eeeeee', skill:0.96 },
@@ -1321,7 +1321,7 @@ const RIVAL_DEFS = [
 function spawnRivals() {
     var defs = shuffleArray(RIVAL_DEFS.slice());
     rivals = defs.map(function(d, i) {
-        return { def:d, worldX:kart.worldX + 140 + i * 200, y:ROAD_Y - 32, w:52, h:32, dy:0,
+        return { def:d, worldX:kart.worldX + 70 + i * 85, y:ROAD_Y - 32, w:52, h:32, dy:0,
                  state:'ground', ko:false, boostTimer:0, boostCd:300, animFrame:0, rot:0,
                  paint:d.paint, driver:d.driver };
     });
@@ -1333,12 +1333,15 @@ function racePosition() {
     return ahead + 1;
 }
 
+// Rivals pace off the player's un-upgraded speed and rubber-band: leaders ease off and stragglers
+// push harder, so the top rivals hover just ahead and a few clean boosts can take the lead.
 function rivalSpeed(r) {
     var skill = r.def.skill + (gpLevel - 1) * 0.02;
-    var ramp  = (BASE_SPEED + (r.worldX - 200) * SPEED_ACCEL) * skill + 0.4;
-    var spd   = Math.min(MAX_SPEED * skill, ramp);
-    if (r.worldX - kart.worldX > 2000) spd *= 0.94;   // leaders ease off so the pack stays catchable
-    return spd;
+    var pace  = Math.min(MAX_SPEED, BASE_SPEED + distancePx * SPEED_ACCEL) * skill;
+    var gap   = r.worldX - kart.worldX;
+    if (gap > 0) pace *= 1 - 0.18 * Math.min(1, gap / 1800);
+    else         pace *= 1 + 0.10 * Math.min(1, -gap / 1800);
+    return pace;
 }
 
 function knockOutRival(r) {
