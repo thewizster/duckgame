@@ -117,9 +117,59 @@ def call_model(req, api_key, opener=urllib.request.urlopen):
     return "".join(str(b.get("text", "")) for b in content)
 
 
+_FENCE_RE = re.compile(r"^```(?:json)?[ \t]*\n(.*?)\n?```$", re.S)
+MAX_FALLBACK_TRIES = 50
+
+
+def warn(msg):
+    print(f"warning: {msg}", file=sys.stderr)
+
+
+def _normalise(obj, text):
+    if not isinstance(obj, dict):
+        warn("model reply JSON is not an object; posting the raw reply as the summary")
+        return {"summary": text.strip(), "findings": []}
+    findings = obj.get("findings")
+    if not isinstance(findings, list):
+        if findings is not None:
+            warn("model reply 'findings' is not a list; ignoring it")
+        findings = []
+    obj["findings"] = [f for f in findings if isinstance(f, dict)]
+    obj["summary"] = str(obj.get("summary", ""))
+    return obj
+
+
 def parse_model_output(text):
-    m = re.search(r"\{.*\}", text, re.S)
-    return json.loads(m.group(0)) if m else {"summary": text.strip(), "findings": []}
+    """Strict first: the whole reply (optionally in a ```json fence) must be the JSON object.
+    Fallback: the first decodable {...} in the text, with a warning. Never raises."""
+    t = text.strip()
+    m = _FENCE_RE.match(t)
+    if m:
+        t = m.group(1).strip()
+    try:
+        return _normalise(json.loads(t), text)
+    except ValueError:
+        pass
+    dec = json.JSONDecoder()
+    starts = [i for i, c in enumerate(t) if c == "{"][:MAX_FALLBACK_TRIES]
+    for i in starts:
+        try:
+            obj, _ = dec.raw_decode(t, i)
+        except ValueError:
+            continue
+        if isinstance(obj, dict):
+            warn("model reply was not pure JSON; extracted the first JSON object from surrounding text")
+            return _normalise(obj, text)
+    warn("model reply contained no valid JSON object; posting the raw reply as the summary")
+    return {"summary": text.strip(), "findings": []}
+
+
+def _line_no(v):
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
 
 
 def valid_lines(diff):
@@ -139,7 +189,7 @@ def build_review(result, valid, model, head_sha):
     comments, extra = [], []
     for f in result.get("findings", []):
         body = f"{MARKER}\n**Forge [{f.get('severity','minor')}]** {f.get('comment','')}"
-        key = (f.get("path"), int(f.get("line") or 0))
+        key = (f.get("path"), _line_no(f.get("line")))
         if key in valid:
             comments.append({"path": key[0], "line": key[1], "side": "RIGHT", "body": body})
         else:
