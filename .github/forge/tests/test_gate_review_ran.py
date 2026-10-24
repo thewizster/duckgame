@@ -51,7 +51,8 @@ class ReviewMustHaveRun(unittest.TestCase):
         self.assertEqual(code, 0)
 
     def test_workflow_passes_review_result_to_gate(self):
-        wf = open(os.path.join(os.path.dirname(gate.__file__), "..", "workflows", "forge-review.yml")).read()
+        with open(os.path.join(os.path.dirname(gate.__file__), "..", "workflows", "forge-review.yml")) as f:
+            wf = f.read()
         self.assertIn("REVIEW_RESULT: ${{ needs.review.result }}", wf)
 
 

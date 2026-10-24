@@ -234,7 +234,8 @@ def run(env, gh, opener):
         print("Empty diff, nothing to review. Posted an empty Forge review."); return 0
     diff, truncated = truncate_diff(diff)
 
-    prompt = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "review-prompt.md")).read()
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "review-prompt.md")) as f:
+        prompt = f.read()
     api_key = env.get(SECRET_ENV) or ""
     if not api_key:
         raise ForgeError(f"{SECRET_ENV} is not set")
