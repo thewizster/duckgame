@@ -7,8 +7,27 @@ MAX_DIFF_CHARS = 150_000
 DEFAULT_MODEL = "claude-sonnet-4-5"
 
 
+SECRET_ENV = "ANTHROPIC_API_KEY"
+
+
+class ForgeError(Exception):
+    """A failure whose message is already safe to print (secrets scrubbed)."""
+
+
+def redact(text, *secrets):
+    """Replace every non-empty secret in text with [REDACTED]."""
+    text = str(text)
+    for s in secrets:
+        if s:
+            text = text.replace(s, "[REDACTED]")
+    return text
+
+
 def gh(*args, input=None):
-    return subprocess.run(["gh", *args], check=True, capture_output=True, text=True, input=input).stdout
+    # gh never needs the model key, so don't hand it to the subprocess.
+    env = {k: v for k, v in os.environ.items() if k != SECRET_ENV}
+    return subprocess.run(["gh", *args], check=True, capture_output=True, text=True,
+                          input=input, env=env).stdout
 
 
 def read_env(env):
@@ -32,8 +51,17 @@ def build_request(diff, prompt, model, api_key, truncated=False):
 
 
 def call_model(req, api_key, opener=urllib.request.urlopen):
-    with opener(req, timeout=180) as r:
-        return "".join(b.get("text", "") for b in json.load(r)["content"])
+    """POST the request and return the model's text. Raises ForgeError with the key scrubbed.
+
+    `from None` drops the original exception chain so no traceback can carry the
+    request headers (and the key) into the CI log.
+    """
+    try:
+        with opener(req, timeout=180) as r:
+            raw = r.read()
+    except Exception as e:
+        raise ForgeError(redact(f"Anthropic API request failed: {type(e).__name__}: {e}", api_key)) from None
+    return "".join(b.get("text", "") for b in json.loads(raw)["content"])
 
 
 def parse_model_output(text):
@@ -76,6 +104,18 @@ def build_review(result, valid, model, head_sha):
 
 
 def main(env=os.environ, gh=gh, opener=urllib.request.urlopen):
+    """Entry point. Never lets an exception (and its traceback) escape; never prints the key."""
+    secret = env.get(SECRET_ENV, "")
+    try:
+        return run(env, gh, opener)
+    except ForgeError as e:
+        print(f"Forge review failed: {redact(e, secret)}", file=sys.stderr)
+    except Exception as e:
+        print(f"Forge review failed unexpectedly: {type(e).__name__}: {redact(e, secret)}", file=sys.stderr)
+    return 1
+
+
+def run(env, gh, opener):
     repo, pr, head_sha, model = read_env(env)
     diff = gh("pr", "diff", pr, "--repo", repo)
     if not diff.strip():
@@ -83,7 +123,9 @@ def main(env=os.environ, gh=gh, opener=urllib.request.urlopen):
     diff, truncated = truncate_diff(diff)
 
     prompt = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "review-prompt.md")).read()
-    api_key = env["ANTHROPIC_API_KEY"]
+    api_key = env.get(SECRET_ENV) or ""
+    if not api_key:
+        raise ForgeError(f"{SECRET_ENV} is not set")
     text = call_model(build_request(diff, prompt, model, api_key, truncated), api_key, opener)
     result = parse_model_output(text)
 
