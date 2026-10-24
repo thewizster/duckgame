@@ -69,3 +69,25 @@ class EmptyDiffStillPostsReview(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewResultAllowlist(unittest.TestCase):
+    """Round 3 blocker: only 'success' or 'skipped' may proceed; empty/unknown fails closed."""
+
+    def test_empty_or_unknown_result_blocks_even_with_head_review(self):
+        for result in ("", "neutral", "SUCCESS", "bogus"):
+            with self.subTest(result=result):
+                code, out = run_gate(gate_env(REVIEW_RESULT=result), FakeGraphQL([[]]))
+                self.assertEqual(code, 1)
+                self.assertIn("REVIEW_RESULT", out)
+
+    def test_unset_result_blocks(self):
+        env = gate_env(); del env["REVIEW_RESULT"]
+        code, out = run_gate(env, FakeGraphQL([[]]))
+        self.assertEqual(code, 1)
+        self.assertIn("REVIEW_RESULT", out)
+
+    def test_success_and_skipped_with_head_review_pass(self):
+        for result in ("success", "skipped"):
+            with self.subTest(result=result):
+                self.assertEqual(run_gate(gate_env(REVIEW_RESULT=result), FakeGraphQL([[]]))[0], 0)

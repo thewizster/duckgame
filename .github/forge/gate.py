@@ -7,6 +7,9 @@ MARKER = "<!-- forge-review -->"
 DISMISS_LABEL = "forge-review-dismissed"
 # Logins whose marker-bearing review counts as "Forge reviewed this commit".
 FORGE_BOT_LOGINS = {"github-actions"}
+# needs.review.result values that may proceed to the head-review check. Anything else,
+# including empty/unset, blocks (fail closed).
+OK_REVIEW_RESULTS = {"success", "skipped"}
 
 MAX_PAGES = 50  # 50 x 100 threads; a safety stop, not a real limit
 
@@ -84,14 +87,15 @@ def check(env, graphql):
         print("Forge review explicitly dismissed via label. Passing."); return 0
 
     result = env.get("REVIEW_RESULT", "")
-    if result in ("failure", "cancelled"):
-        print(f"Forge review job result was '{result}', so this commit was not reviewed. Re-run the "
-              f"Forge review workflow, or add the '{DISMISS_LABEL}' label to override.")
+    if result not in OK_REVIEW_RESULTS:
+        print(f"Forge review job result (REVIEW_RESULT) was '{result}', not success or skipped, so this "
+              f"commit was not reviewed. Re-run the Forge review workflow, or add the "
+              f"'{DISMISS_LABEL}' label to override.")
         return 1
 
     head, reviews, threads = fetch_pr(owner, name, pr, graphql)
     if not forge_reviewed(head, reviews):
-        why = f"review job {result}" if result else "review job result unknown"
+        why = f"review job {result}"
         print(f"No Forge review found for head {head[:7]} ({why}; it is skipped for draft and fork PRs). "
               f"Mark the PR ready for review or push to trigger it, or add the '{DISMISS_LABEL}' label.")
         return 1
