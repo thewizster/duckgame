@@ -935,7 +935,7 @@ var isDying = false;
 
 // The single place damage is applied. fxX/fxY (screen space) place the impact sparks.
 function hurtKart(amount, fxX, fxY) {
-    if (kart.invincible > 0 || !kart.alive || isDying) return false;
+    if (kart.invincible > 0 || kart.boostTimer > 0 || !kart.alive || isDying) return false;
     if (fxX !== undefined) spawnSparks(fxX, fxY);
     spawnFeathers(KART_SCREEN_X + 26, kart.y + 14);
     if (kart.shield) {
@@ -1504,7 +1504,17 @@ function checkObstacleCollisions() {
             var barrierTop = ROAD_Y - o.h;
             var hitX = ks + kart.w - 4 > ox + 2 && ks + 4 < ox + o.w - 2;
             var hitY = kart.y + kart.h - 4 > barrierTop && kart.y + 4 < ROAD_Y;
-            if (hitX && hitY) hurtKart(HIT_DAMAGE, ox + o.w / 2, barrierTop);
+            if (o.smashed || !hitX || !hitY) continue;
+            if (kart.boostTimer > 0) {
+                // Boost rams straight through barriers
+                o.smashed = true;
+                spawnSparks(ox + o.w / 2, barrierTop + 10);
+                spawnExplosion(ox + o.w / 2, barrierTop + o.h / 2);
+                sfxKill();
+                shakeFrames = 4; shakeMagnitude = 3;
+            } else {
+                hurtKart(HIT_DAMAGE, ox + o.w / 2, barrierTop);
+            }
 
         } else if (o.type === 'pothole') {
             // Pothole bumps the kart upward and triggers a small dust puff
@@ -1547,6 +1557,7 @@ function drawObstacles() {
             ctx.fillRect(ox + Math.floor(o.w * 0.55), ROAD_Y - Math.floor(slope * 0.72), 8, 4);
 
         } else if (o.type === 'barrier') {
+            if (o.smashed) continue;
             var bt = ROAD_Y - o.h;
             // Post
             ctx.fillStyle = '#cc8800';
@@ -2586,8 +2597,12 @@ function updateEnemies() {
         var oky = kart.y + kart.h - 5 > e.y + 3 && kart.y + 5 < e.y + e.h - 3;
         if (!okx || !oky) continue;
 
+        // Boost ram: smash anything in the way
+        if (kart.boostTimer > 0) {
+            e.hp = 0;
+            shakeFrames = 4; shakeMagnitude = 3;
         // Stomp: falling fast onto top third of enemy
-        if (kart.dy > 1.5 && kart.y + kart.h <= e.y + e.h * 0.38 + 4) {
+        } else if (kart.dy > 1.5 && kart.y + kart.h <= e.y + e.h * 0.38 + 4) {
             e.hp = 0;
             kart.dy = -5.5; kart.state = 'air'; kart.invincible = 28;
         } else {
