@@ -369,6 +369,8 @@ const BIOMES = [
         dirtColor:     '#7a9a40',
         musicIdx:      0,
         particle:      'dust',
+        hazard:        null,
+        hazardTip:     null,
         enemies:       ['gator', 'hawk', 'turtle']
     },
     {
@@ -383,6 +385,8 @@ const BIOMES = [
         dirtColor:     '#d4b060',
         musicIdx:      1,
         particle:      'sand',
+        hazard:        'sand',
+        hazardTip:     'SAND DRIFTS SLOW YOU DOWN',
         enemies:       ['snake', 'vulture', 'tumbleweed']
     },
     {
@@ -397,6 +401,8 @@ const BIOMES = [
         dirtColor:     '#404040',
         musicIdx:      2,
         particle:      'rain',
+        hazard:        'oil',
+        hazardTip:     'OIL SLICKS SPIN YOU OUT - NO JUMPING!',
         enemies:       ['taxi', 'pigeon', 'raccoon']
     },
     {
@@ -411,6 +417,8 @@ const BIOMES = [
         dirtColor:     '#e8e8e8',
         musicIdx:      3,
         particle:      'snow',
+        hazard:        'ice',
+        hazardTip:     'BLACK ICE: FASTER, BUT WEAKER JUMPS',
         enemies:       ['yeti', 'eagle', 'boulder']
     },
     {
@@ -425,6 +433,8 @@ const BIOMES = [
         dirtColor:     '#0c0c22',
         musicIdx:      4,
         particle:      'star',
+        hazard:        'lowg',
+        hazardTip:     'ZERO-G STRIPS: FLOAT FOR BIG TRICKS',
         enemies:       ['ufo', 'asteroid', 'drone']
     }
 ];
@@ -650,6 +660,8 @@ const kart = {
     flipRot: 0, flips: 0,   // current flip progress (radians) and flips completed this jump
     tilt: 0, rot: 0,        // ramp tilt and the drawn rotation (tilt - flipRot)
     onRamp: null,
+    surface: null,          // hazard kind under the kart this frame
+    spin: 0,                // oil slick spin-out frames (no jumping)
     paint: ABILITY_POOL[0].paint
 };
 
@@ -912,6 +924,7 @@ function checkBiomeTransition() {
         var map = { 1:'reach_desert', 2:'reach_city', 3:'reach_mountain', 4:'reach_space' };
         if (map[newIdx]) unlockAchievement(map[newIdx]);
         toasts.push({ text:'Entering: ' + BIOMES[newIdx].name, timer:200 });
+        if (BIOMES[newIdx].hazardTip) toasts.push({ text:BIOMES[newIdx].hazardTip, timer:300 });
         biomeFlash = 30;
         nextEnemyX = kart.worldX + 600; // safe zone after transition
     }
@@ -978,6 +991,21 @@ function updatePhysics() {
     }
     runFrames++;
 
+    // Biome hazard under the kart (sand/oil/ice act on the wheels, zero-G on the whole column)
+    var patch = patchUnderKart();
+    kart.surface = patch && (patch.kind === 'lowg' || kart.state === 'ground') ? patch.kind : null;
+    if (kart.surface === 'oil' && !patch.used) {
+        patch.used = true;
+        kart.spin  = 40;
+        toasts.push({ text:'SPUN OUT!', timer:90 });
+        playTone(300, 'sawtooth', 0.08, 0.25);
+    }
+    if (kart.spin > 0) kart.spin--;
+    var surfMul = kart.surface === 'sand' ? 0.6 : kart.surface === 'ice' ? 1.35 : 1;
+    if (kart.surface === 'sand' && frameCount % 3 === 0) spawnDust(KART_SCREEN_X + 8, ROAD_Y - 2);
+    if (kart.surface === 'ice' && frameCount % 4 === 0)
+        spawnParticle(KART_SCREEN_X + 10, ROAD_Y - 2, -2, -1, 14, '#e8f8ff', 2);
+
     // Speed ramp-up over distance
     var maxSpd = MAX_SPEED + (activeUpgrades.indexOf('turbo_engine') !== -1 ? 0.6 : 0);
     kart.speed = Math.min(maxSpd,
@@ -992,12 +1020,13 @@ function updatePhysics() {
     }
 
     // Advance kart
-    kart.worldX += kart.speed;
+    kart.worldX += kart.speed * surfMul;
     distancePx   = Math.max(0, kart.worldX - 200);
     cameraX      = kart.worldX - KART_SCREEN_X;
 
     // Gravity
     var effG = kart.swiftMode ? GRAVITY * 0.85 : GRAVITY;
+    if (kart.surface === 'lowg') effG *= 0.35;
     kart.dy += effG;
     if (kart.dy > MAX_FALL) kart.dy = MAX_FALL;
     kart.y += kart.dy;
@@ -1039,7 +1068,7 @@ function updatePhysics() {
     // ── Obstacle collision ──
     checkObstacleCollisions();
     if (!kart.onRamp) kart.tilt *= 0.9;
-    kart.rot = kart.tilt - kart.flipRot;
+    kart.rot = kart.tilt - kart.flipRot + (kart.spin > 0 ? Math.sin(kart.spin * 0.7) * 0.35 : 0);
 
     // Canvas top clamp
     if (kart.y < 0) { kart.y = 0; kart.dy = Math.max(0, kart.dy); }
@@ -1088,6 +1117,14 @@ function updatePhysics() {
     updateHUD();
 }
 
+function patchUnderKart() {
+    for (var i = 0; i < obstacles.length; i++) {
+        var o = obstacles[i];
+        if (o.type === 'patch' && kart.worldX + kart.w - 6 > o.worldX && kart.worldX + 6 < o.worldX + o.w) return o;
+    }
+    return null;
+}
+
 function landKart() {
     var r = kart.flipRot;
     var n = kart.flips + (r > Math.PI * 2 - 0.5 ? 1 : 0);   // a nearly finished flip still counts
@@ -1124,6 +1161,7 @@ function startRun() {
     kart.shield = false; kart.airJumps = 0; kart.maxAirJumps = 0;
     kart.alive = true; kart.swiftMode = false; kart.tough = false; kart.paint = ABILITY_POOL[0].paint;
     kart.flipRot = 0; kart.flips = 0; kart.tilt = 0; kart.rot = 0; kart.onRamp = null;
+    kart.surface = null; kart.spin = 0;
     trickHeld = false;
 
     corn = 0; kills = 0; distancePx = 0;
@@ -1205,9 +1243,10 @@ function selectAbility(idx) {
 
 // ==================== INPUT ACTIONS ====================
 function doJump() {
+    if (kart.spin > 0) return;   // spun out on an oil slick
     kart.onRamp = null;
     if (kart.state === 'ground') {
-        kart.dy = JUMP_POWER; kart.state = 'air'; kart.airJumps = 0;
+        kart.dy = JUMP_POWER * (kart.surface === 'ice' ? 0.7 : 1); kart.state = 'air'; kart.airJumps = 0;
         sfxJump();
         spawnDust(KART_SCREEN_X + kart.w / 2, ROAD_Y);
         spawnRocketFlame(KART_SCREEN_X - 4, kart.y + kart.h - 4);
@@ -1497,14 +1536,16 @@ function drawRoad() {
 //   ramp    — wedge that launches kart airborne (3 sizes)
 //   barrier — striped wall that must be jumped over
 //   pothole — road dimple that bumps the kart slightly
+//   patch   — biome hazard on the road surface (kind: sand / oil / ice / lowg)
 
 function generateObstacles() {
     while (nextObstacleX < cameraX + GEN_AHEAD) {
         var gap  = randBetween(320, 620);
         var roll = Math.random();
         var obj  = null;
-        // Ramps more common than barriers; potholes sprinkled in
-        if (roll < 0.40) {
+        var hazard = BIOMES[currentBiomeIdx].hazard;
+        // Ramps more common than barriers; potholes and biome hazards sprinkled in
+        if (roll < 0.36) {
             // ramp: small / medium / large
             var sizes = [
                 { w:52,  h:28 },
@@ -1513,14 +1554,18 @@ function generateObstacles() {
             ];
             var sz = sizes[Math.floor(Math.random() * 3)];
             obj = { type:'ramp', worldX:nextObstacleX, w:sz.w, h:sz.h, used:false };
-        } else if (roll < 0.65) {
+        } else if (roll < 0.58) {
             // barrier — tall enough to require jumping
             obj = { type:'barrier', worldX:nextObstacleX, w:20, h:44 };
-        } else if (roll < 0.82) {
+        } else if (roll < 0.72) {
             // pothole
             obj = { type:'pothole', worldX:nextObstacleX, w:44, h:12 };
+        } else if (roll < 0.90 && hazard) {
+            var pw = hazard === 'lowg' ? randBetween(260, 380) : randBetween(110, 200);
+            obj = { type:'patch', kind:hazard, worldX:nextObstacleX, w:pw, h:10 };
+            gap += pw + (hazard === 'oil' ? 200 : 0);   // room to recover before the next obstacle
         }
-        // 18% chance: no obstacle in this gap (open road)
+        // Otherwise: no obstacle in this gap (open road)
         if (obj) obstacles.push(obj);
         nextObstacleX += gap;
     }
@@ -1640,6 +1685,9 @@ function drawObstacles() {
             ctx.fillStyle = 'rgba(0,0,0,0.25)';
             ctx.fillRect(ox + o.w, bt, 5, o.h);
 
+        } else if (o.type === 'patch') {
+            drawPatch(o, ox);
+
         } else if (o.type === 'pothole') {
             // Oval depression on road
             ctx.fillStyle = '#1a1a1a';
@@ -1650,6 +1698,43 @@ function drawObstacles() {
             ctx.beginPath();
             ctx.ellipse(ox + o.w / 2, ROAD_Y + 2, o.w / 2 - 4, 5, 0, 0, Math.PI * 2);
             ctx.fill();
+        }
+    }
+}
+
+function drawPatch(o, ox) {
+    var i;
+    if (o.kind === 'sand') {
+        ctx.fillStyle = '#d8b868';
+        ctx.fillRect(ox, ROAD_Y - 3, o.w, 9);
+        ctx.fillRect(ox + 10, ROAD_Y - 7, o.w - 20, 5);
+        ctx.fillStyle = '#b89848';
+        for (i = 8; i < o.w - 8; i += 14) ctx.fillRect(ox + i, ROAD_Y + 1 + (i % 3), 4, 2);
+    } else if (o.kind === 'oil') {
+        ctx.fillStyle = '#101018';
+        ctx.beginPath();
+        ctx.ellipse(ox + o.w / 2, ROAD_Y + 3, o.w / 2, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        var sheen = ['rgba(255,80,200,0.35)', 'rgba(80,200,255,0.35)', 'rgba(255,240,80,0.30)'];
+        for (i = 0; i < 3; i++) {
+            ctx.fillStyle = sheen[i];
+            ctx.fillRect(ox + o.w * (0.2 + i * 0.22), ROAD_Y + 1 + i, o.w * 0.16, 2);
+        }
+    } else if (o.kind === 'ice') {
+        ctx.fillStyle = 'rgba(190,235,255,0.75)';
+        ctx.fillRect(ox, ROAD_Y - 2, o.w, 10);
+        ctx.fillStyle = '#ffffff';
+        for (i = 6; i < o.w - 10; i += 22) ctx.fillRect(ox + i, ROAD_Y + 1, 12, 2);
+    } else if (o.kind === 'lowg') {
+        var pulse = 0.5 + 0.5 * Math.sin(frameCount * 0.1);
+        ctx.fillStyle = 'rgba(170,90,255,0.07)';
+        ctx.fillRect(ox, 60, o.w, ROAD_Y - 60);
+        ctx.fillStyle = 'rgba(190,120,255,' + (0.45 + pulse * 0.35) + ')';
+        ctx.fillRect(ox, ROAD_Y - 2, o.w, 6);
+        ctx.fillStyle = '#e0c0ff';
+        for (i = 0; i < o.w; i += 30) {
+            var py = ROAD_Y - 10 - ((frameCount * 1.5 + i * 7) % 220);
+            ctx.fillRect(ox + i + 8, py, 2, 6);
         }
     }
 }
