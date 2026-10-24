@@ -43,16 +43,24 @@ def read_env(env):
 
 
 def truncate_diff(diff, limit=MAX_DIFF_CHARS):
-    return diff[:limit], len(diff) > limit  # keep the request bounded
+    """Keep the request bounded. Cut at the last line break within limit so no diff
+    line is split; only a single line longer than limit gets a hard cut."""
+    if len(diff) <= limit:
+        return diff, False
+    cut = diff.rfind("\n", 0, limit)
+    return (diff[:cut + 1] if cut >= 0 else diff[:limit]), True
 
 
 def build_request(diff, prompt, model, api_key, truncated=False):
+    note = ("NOTE: this diff was truncated at a line boundary to stay within the size limit. "
+            "Later files or hunks are missing; do not report problems caused only by the cut.\n\n"
+            if truncated else "")
     return urllib.request.Request(
         API_URL,
         data=json.dumps({
             "model": model, "max_tokens": 4000,
             "system": prompt,
-            "messages": [{"role": "user", "content": f"PR diff:\n\n```diff\n{diff}\n```"}],
+            "messages": [{"role": "user", "content": f"{note}PR diff:\n\n```diff\n{diff}\n```"}],
         }).encode(),
         headers={"x-api-key": api_key, "anthropic-version": "2023-06-01",
                  "content-type": "application/json"})
