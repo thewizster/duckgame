@@ -38,6 +38,9 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: python3 .github/forge/review.py
 
+  # Runs even when review is skipped (re-checks on label/review events) or fails.
+  # gate.py blocks if review failed/cancelled, or if no Forge review exists for
+  # the current head commit (draft/fork PRs, a failed run), so "skipped" can't pass.
   gate:
     name: Forge review gate
     needs: [review]
@@ -51,4 +54,5 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          REVIEW_RESULT: ${{ needs.review.result }}
         run: python3 .github/forge/gate.py

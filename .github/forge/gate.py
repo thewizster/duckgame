@@ -5,8 +5,12 @@ import forge_env
 
 MARKER = "<!-- forge-review -->"
 DISMISS_LABEL = "forge-review-dismissed"
+# Logins whose marker-bearing review counts as "Forge reviewed this commit".
+FORGE_BOT_LOGINS = {"github-actions"}
 
 QUERY = """query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){pullRequest(number:$p){
+  headRefOid
+  reviews(last:100){nodes{body author{login} commit{oid}}}
   reviewThreads(first:100){nodes{isResolved isOutdated path line
   comments(first:1){nodes{body url}}}}}}}"""
 
@@ -27,9 +31,18 @@ def read_env(env):
     return owner, name, forge_env.pr_number(env), forge_env.labels(env)
 
 
-def fetch_threads(owner, name, pr, graphql=graphql):
-    data = graphql(QUERY, o=owner, n=name, p=pr)
-    return data["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+def fetch_pr(owner, name, pr, graphql=graphql):
+    """Return (head_sha, reviews, threads) for the PR."""
+    p = graphql(QUERY, o=owner, n=name, p=pr)["data"]["repository"]["pullRequest"]
+    return p["headRefOid"], p["reviews"]["nodes"], p["reviewThreads"]["nodes"]
+
+
+def forge_reviewed(head, reviews):
+    """True if the Forge bot posted its review for the current head commit."""
+    return any(MARKER in (r.get("body") or "")
+               and (r.get("author") or {}).get("login") in FORGE_BOT_LOGINS
+               and (r.get("commit") or {}).get("oid") == head
+               for r in reviews)
 
 
 def is_forge_thread(t):
@@ -58,7 +71,20 @@ def check(env, graphql):
     if DISMISS_LABEL in labels:
         print("Forge review explicitly dismissed via label. Passing."); return 0
 
-    open_ = open_forge_threads(fetch_threads(owner, name, pr, graphql))
+    result = env.get("REVIEW_RESULT", "")
+    if result in ("failure", "cancelled"):
+        print(f"Forge review job result was '{result}', so this commit was not reviewed. Re-run the "
+              f"Forge review workflow, or add the '{DISMISS_LABEL}' label to override.")
+        return 1
+
+    head, reviews, threads = fetch_pr(owner, name, pr, graphql)
+    if not forge_reviewed(head, reviews):
+        why = f"review job {result}" if result else "review job result unknown"
+        print(f"No Forge review found for head {head[:7]} ({why}; it is skipped for draft and fork PRs). "
+              f"Mark the PR ready for review or push to trigger it, or add the '{DISMISS_LABEL}' label.")
+        return 1
+
+    open_ = open_forge_threads(threads)
     if open_:
         print(f"{len(open_)} unresolved Forge review thread(s):")
         for t in open_:

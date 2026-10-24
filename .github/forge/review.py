@@ -148,6 +148,11 @@ def build_review(result, valid, model, head_sha):
     return {"commit_id": head_sha, "event": "COMMENT", "body": body, "comments": comments}, len(extra)
 
 
+def post_review(gh, repo, pr, payload):
+    gh("api", f"repos/{repo}/pulls/{pr}/reviews", "--method", "POST", "--input", "-",
+       input=json.dumps(payload))
+
+
 def main(env=os.environ, gh=gh, opener=urllib.request.urlopen):
     """Entry point. Never lets an exception (and its traceback) escape; never prints the key."""
     secret = env.get(SECRET_ENV, "")
@@ -164,7 +169,11 @@ def run(env, gh, opener):
     repo, pr, head_sha, model = read_env(env)
     diff = gh("pr", "diff", str(pr), "--repo", repo)
     if not diff.strip():
-        print("Empty diff, nothing to review."); return 0
+        # Still post a (finding-free) review so the gate can see HEAD was reviewed.
+        payload = {"commit_id": head_sha, "event": "COMMENT", "comments": [],
+                   "body": f"{MARKER}\n### Forge review for {head_sha[:7]}\n\nEmpty diff. Nothing to review."}
+        post_review(gh, repo, pr, payload)
+        print("Empty diff, nothing to review. Posted an empty Forge review."); return 0
     diff, truncated = truncate_diff(diff)
 
     prompt = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "review-prompt.md")).read()
@@ -175,8 +184,7 @@ def run(env, gh, opener):
     result = parse_model_output(text)
 
     payload, n_extra = build_review(result, valid_lines(diff), model, head_sha)
-    gh("api", f"repos/{repo}/pulls/{pr}/reviews", "--method", "POST", "--input", "-",
-       input=json.dumps(payload))
+    post_review(gh, repo, pr, payload)
     print(f"Posted Forge review: {len(payload['comments'])} inline, {n_extra} general findings.")
     return 0
 
