@@ -178,6 +178,7 @@
 
         #jumpBtn  { left: 12px; }
         #boostBtn { right: 12px; }
+        #trickBtn { left: 50%; transform: translateX(-50%); }
 
         #pauseBtn {
             position: absolute;
@@ -224,6 +225,7 @@
 
     <div id="touchControls">
         <button class="touch-btn" id="jumpBtn">JUMP</button>
+        <button class="touch-btn" id="trickBtn">&#x21BB; FLIP</button>
         <button class="touch-btn" id="boostBtn">&#x26A1; BOOST</button>
     </div>
 </div>
@@ -348,6 +350,9 @@ const HP_REGEN_INTERVAL = 300;    // frames between passive road-side HP ticks
 const HP_REGEN_AMOUNT   = 4;      // HP restored per tick (on ground)
 const SHIELD_RECHARGE_PX = 4000;  // Roll Cage re-arms 400m after breaking
 const EXHAUST_RADIUS    = 150;    // Exhaust Fire blast radius (px)
+const FLIP_FRAMES       = 28;     // frames per full backflip
+const BAD_LANDING_DAMAGE = 20;    // landing mid-flip
+const TRICK_CORN        = 5;      // corn per completed flip
 const DIST_MILESTONES   = [500, 1000, 2000, 3000, 4000, 5000, 6000, 7000];   // metres
 
 // ==================== BIOME DEFINITIONS ====================
@@ -429,11 +434,12 @@ const UPGRADE_DEFS = [
     { id:'double_jump',    name:'Suspension Springs', short:'SPRING', desc:'Jump once more while airborne',              color:'#3498db' },
     { id:'roll_cage',      name:'Roll Cage',          short:'CAGE',   desc:'Absorb one hit; recharges 400m after breaking', color:'#1abc9c' },
     { id:'turbo_engine',   name:'Turbo Engine',       short:'TURBO',  desc:'+0.6 max speed permanently',                color:'#e67e22' },
-    { id:'off_road_tires', name:'Off-Road Tires',     short:'TIRES',  desc:'Ramp launches are 35% higher',              color:'#27ae60' },
+    { id:'off_road_tires', name:'Off-Road Tires',     short:'TIRES',  desc:'Ramp launches go 30% higher',              color:'#27ae60' },
     { id:'extra_boost',    name:'Nitro Tank',         short:'NITRO',  desc:'+1 boost charge',                           color:'#f1c40f', stack:true },
     { id:'magnet',         name:'Magnet Bumper',      short:'MAGNET', desc:'Auto-collect items within 130px',           color:'#9b59b6' },
     { id:'exhaust_fire',   name:'Exhaust Fire',       short:'FIRE',   desc:'Boost use blasts nearby enemies',           color:'#e74c3c' },
     { id:'rocket_boost',   name:'Rocket Boost',       short:'ROCKET', desc:'Boost speed +2 and duration +50%',          color:'#16a085' },
+    { id:'big_wheels',     name:'Monster Wheels',     short:'WHEELS', desc:'Bad landings deal no damage; +50% trick corn', color:'#8e44ad' },
     { id:'hp_up',          name:'Duck Armor',         short:'ARMOR',  desc:'+25 max HP and restore 25 HP',              color:'#c0392b', stack:true }
 ];
 
@@ -452,6 +458,7 @@ var ICON_ART = {
     magnet:         ['.SS..SS.','.RR..RR.','.RR..RR.','.RR..RR.','.RR..RR.','.RRRRRR.','..RRRR..','........'],
     exhaust_fire:   ['...O....','..OO..O.','..OYO.O.','.OOYOOO.','.OYYYOO.','OOYYYYOO','.OOYYOO.','..OOOO..'],
     rocket_boost:   ['...WW...','..WLLW..','..WLLW..','..WWWW..','.TWWWWT.','.T.OO.T.','...YY...','....Y...'],
+    big_wheels:     ['.KKKKKK.','KKPPPPKK','KPSSSSPK','KPS..SPK','KPS..SPK','KPSSSSPK','KKPPPPKK','.KKKKKK.'],
     hp_up:          ['.RR.RR..','RWRRRRR.','RRRRRRR.','RRRRRRR.','.RRRRR..','..RRR...','...R....','........'],
     tough:          ['SSSSSSS.','SSSWSSS.','SSWWWSS.','SSSWSSS.','.SSSSS..','..SSS...','...S....','........']
 };
@@ -491,7 +498,8 @@ const ACHIEVEMENT_DEFS = [
     { id:'kills_10',       name:'Road Bully',       desc:'Defeat 10 enemies in one run'          },
     { id:'upgrade_3',      name:'Pit Crew',         desc:'Take 3 upgrades in one run'            },
     { id:'no_hit_500',     name:'Clean Run',        desc:'Reach 500m without taking damage'      },
-    { id:'victory',        name:'Finish Line!',     desc:'Race all the way to victory'           }
+    { id:'victory',        name:'Finish Line!',     desc:'Race all the way to victory'           },
+    { id:'trick_2',        name:'Stuntmaster',      desc:'Land a double flip cleanly'            }
 ];
 
 // ==================== STARTING ABILITY POOL ====================
@@ -526,6 +534,11 @@ const ABILITY_POOL = [
         name:'Rocket Duck', unlock:'reach_mountain', paint:['#16a085','#2ed8b0','#0a5a48'],
         desc:'Start with Rocket Boost and Exhaust Fire.',
         apply:function() { activeUpgrades.push('rocket_boost', 'exhaust_fire'); }
+    },
+    {
+        name:'Stunt Duck', unlock:'trick_2', paint:['#8e44ad','#b06ad8','#4a1a60'],
+        desc:'Start with Off-Road Tires and Monster Wheels.',
+        apply:function() { activeUpgrades.push('off_road_tires', 'big_wheels'); }
     },
     {
         name:'Golden Duck', unlock:'victory', paint:['#e0b020','#fff070','#a07000'],
@@ -634,6 +647,9 @@ const kart = {
     alive: true,
     swiftMode: false,
     tough: false,
+    flipRot: 0, flips: 0,   // current flip progress (radians) and flips completed this jump
+    tilt: 0, rot: 0,        // ramp tilt and the drawn rotation (tilt - flipRot)
+    onRamp: null,
     paint: ABILITY_POOL[0].paint
 };
 
@@ -988,9 +1004,9 @@ function updatePhysics() {
 
     // Road floor collision
     if (kart.y + kart.h >= ROAD_Y) {
-        if (kart.state === 'air' && kart.dy > 2) {
-            sfxLand();
-            spawnDust(KART_SCREEN_X + kart.w / 2, ROAD_Y);
+        if (kart.state === 'air') {
+            if (kart.dy > 2) { sfxLand(); spawnDust(KART_SCREEN_X + kart.w / 2, ROAD_Y); }
+            landKart();
         }
         kart.y     = ROAD_Y - kart.h;
         kart.dy    = 0;
@@ -1010,8 +1026,20 @@ function updatePhysics() {
         hpRegenTimer = 0;
     }
 
+    // Backflips: hold the trick key in the air; a started flip always finishes its turn
+    if (kart.state === 'air' && (trickHeld || kart.flipRot > 0)) {
+        kart.flipRot += Math.PI * 2 / FLIP_FRAMES;
+        if (kart.flipRot >= Math.PI * 2) {
+            kart.flips++;
+            kart.flipRot = trickHeld ? kart.flipRot - Math.PI * 2 : 0;
+            playTone(500 + kart.flips * 120, 'square', 0.06, 0.06);
+        }
+    }
+
     // ── Obstacle collision ──
     checkObstacleCollisions();
+    if (!kart.onRamp) kart.tilt *= 0.9;
+    kart.rot = kart.tilt - kart.flipRot;
 
     // Canvas top clamp
     if (kart.y < 0) { kart.y = 0; kart.dy = Math.max(0, kart.dy); }
@@ -1060,6 +1088,33 @@ function updatePhysics() {
     updateHUD();
 }
 
+function landKart() {
+    var r = kart.flipRot;
+    var n = kart.flips + (r > Math.PI * 2 - 0.5 ? 1 : 0);   // a nearly finished flip still counts
+    if (r > 0.5 && r < Math.PI * 2 - 0.5) {
+        if (activeUpgrades.indexOf('big_wheels') !== -1) {
+            toasts.push({ text:'SAVED BY MONSTER WHEELS', timer:120 });
+        } else if (hurtKart(BAD_LANDING_DAMAGE, KART_SCREEN_X + kart.w / 2, ROAD_Y - 4)) {
+            toasts.push({ text:'BAD LANDING!', timer:120 });
+        }
+    } else if (n > 0) {
+        var gain = Math.round(TRICK_CORN * n * (activeUpgrades.indexOf('big_wheels') !== -1 ? 1.5 : 1));
+        var names = ['', 'BACKFLIP', 'DOUBLE FLIP', 'TRIPLE FLIP'];
+        var text = (names[n] || n + 'x FLIP') + '! +' + gain + ' corn';
+        corn += gain;
+        if (n >= 2) {
+            kart.boostCharges++;
+            text += ' +BOOST';
+            unlockAchievement('trick_2');
+        }
+        toasts.push({ text:text, timer:140 });
+        sfxCollect();
+        spawnCollectFX(KART_SCREEN_X + kart.w / 2, kart.y);
+    }
+    kart.flipRot = 0;
+    kart.flips   = 0;
+}
+
 // ==================== RUN MANAGEMENT ====================
 function startRun() {
     kart.worldX = 200; kart.y = ROAD_Y - kart.h; kart.dy = 0;
@@ -1068,6 +1123,8 @@ function startRun() {
     kart.animFrame = 0; kart.animTimer = 0; kart.invincible = 0;
     kart.shield = false; kart.airJumps = 0; kart.maxAirJumps = 0;
     kart.alive = true; kart.swiftMode = false; kart.tough = false; kart.paint = ABILITY_POOL[0].paint;
+    kart.flipRot = 0; kart.flips = 0; kart.tilt = 0; kart.rot = 0; kart.onRamp = null;
+    trickHeld = false;
 
     corn = 0; kills = 0; distancePx = 0;
     currentBiomeIdx = 0; lastUpgradePx = 0;
@@ -1085,6 +1142,7 @@ function startRun() {
 
     cameraX = kart.worldX - KART_SCREEN_X;
     startMusic(0);
+    if (meta.totalRuns < 3) toasts.push({ text:'Hold \u2193 in the air to flip!', timer:300 });
     gameState = 'PLAYING';
     document.getElementById('hud').style.display = 'flex';
     updateHUD();
@@ -1147,6 +1205,7 @@ function selectAbility(idx) {
 
 // ==================== INPUT ACTIONS ====================
 function doJump() {
+    kart.onRamp = null;
     if (kart.state === 'ground') {
         kart.dy = JUMP_POWER; kart.state = 'air'; kart.airJumps = 0;
         sfxJump();
@@ -1484,18 +1543,25 @@ function checkObstacleCollisions() {
         if (ox + o.w < -10 || ox > W + 10) continue;
 
         if (o.type === 'ramp') {
-            // Trigger launch when kart's right side enters ramp zone while on ground
-            if (!o.used && kart.state === 'ground' &&
-                ks + kart.w > ox + 4 && ks < ox + o.w) {
-                o.used = true;
-                var lift = activeUpgrades.indexOf('off_road_tires') !== -1
-                    ? -(9 + o.h * 0.22)
-                    : -(7 + o.h * 0.18);
+            // The front wheel rides up the slope; leaving the lip launches the kart
+            var t = (ks + kart.w - 8 - ox) / o.w;
+            if (t >= 0 && t <= 1 && kart.dy >= 0) {
+                var surf = ROAD_Y - o.h * t;
+                if (kart.y + kart.h >= surf - 2) {
+                    if (kart.state === 'air') landKart();
+                    kart.y = surf - kart.h; kart.dy = 0;
+                    kart.state = 'ground'; kart.airJumps = 0;
+                    kart.onRamp = o;
+                    kart.tilt = -Math.atan2(o.h, o.w);
+                }
+            } else if (kart.onRamp === o && t > 1) {
+                kart.onRamp = null;
+                // Tall ramps stay just under the top of the screen, even with Off-Road Tires
+                var lift = -(6 + o.h * 0.12) * (activeUpgrades.indexOf('off_road_tires') !== -1 ? 1.15 : 1);
                 kart.dy    = lift;
                 kart.state = 'air';
                 kart.airJumps = 0;
                 sfxRamp();
-                spawnDust(ks + kart.w / 2, ROAD_Y);
                 spawnRocketFlame(ks - 4, kart.y + kart.h - 4);
             }
 
@@ -1589,14 +1655,16 @@ function drawObstacles() {
 }
 
 // ==================== DRAW: KART SPRITE ====================
-// paint and groundY are optional (used for previews away from the road)
-function drawKart(x, y, animFrame, invincible, shield, paint, groundY) {
+// k is the player kart, a rival, or a preview object with the same fields:
+// { state, animFrame, invincible, shield, paint, boostTimer, rot, driver }.
+// groundY is optional (used for previews away from the road).
+function drawKart(k, x, y, groundY) {
     groundY = groundY || ROAD_Y;
     ctx.save();
-    if (invincible > 0 && Math.floor(invincible / 5) % 2 === 0) ctx.globalAlpha = 0.45;
+    if (k.invincible > 0 && Math.floor(k.invincible / 5) % 2 === 0) ctx.globalAlpha = 0.45;
 
     // Subtle bounce on ground
-    var bounce = kart.state === 'ground' ? Math.sin(frameCount * 0.30) * 1.0 : 0;
+    var bounce = k.state === 'ground' ? Math.sin(frameCount * 0.30) * 1.0 : 0;
     y += bounce;
 
     // ── Shadow — shrinks & fades as kart rises ──
@@ -1608,8 +1676,16 @@ function drawKart(x, y, animFrame, invincible, shield, paint, groundY) {
     ctx.fillStyle = 'rgba(0,0,0,' + shadowAlpha + ')';
     ctx.fillRect(shadowX, groundY - 3, shadowW, Math.max(2, Math.round(5 * shadowScale)));
 
+    // Flips and ramp tilt rotate the kart around its centre
+    if (k.rot) {
+        ctx.translate(x + 26, y + 16);
+        ctx.rotate(k.rot);
+        ctx.translate(-(x + 26), -(y + 16));
+    }
+
     // ── Kart body ──
-    paint = paint || kart.paint;
+    var paint = k.paint || ABILITY_POOL[0].paint;
+    var driver = k.driver || '#f5c842';
     ctx.fillStyle = paint[0];
     ctx.fillRect(x + 6,  y + 14, 40, 14);   // main chassis
     ctx.fillStyle = paint[1];
@@ -1623,7 +1699,7 @@ function drawKart(x, y, animFrame, invincible, shield, paint, groundY) {
     ctx.fillRect(x,      y + 22, 7,  3);
 
     // Exhaust glow when boosting
-    if (kart.boostTimer > 0) {
+    if (k.boostTimer > 0) {
         ctx.fillStyle = 'rgba(255,160,0,0.75)';
         ctx.fillRect(x - 4,  y + 16, 5, 4);
         ctx.fillRect(x - 4,  y + 21, 5, 4);
@@ -1637,10 +1713,10 @@ function drawKart(x, y, animFrame, invincible, shield, paint, groundY) {
 
     // ── Duck in cockpit ──
     // Body
-    ctx.fillStyle = '#f5c842';
+    ctx.fillStyle = driver;
     ctx.fillRect(x + 25, y + 2,  14, 10);
     // Head
-    ctx.fillStyle = '#f5c842';
+    ctx.fillStyle = driver;
     ctx.fillRect(x + 31, y - 2,  10,  8);
     // Beak
     ctx.fillStyle = '#e07820';
@@ -1653,7 +1729,7 @@ function drawKart(x, y, animFrame, invincible, shield, paint, groundY) {
     ctx.fillRect(x + 38, y - 1,   1,  1);
     // Wing — waves on alternating frames
     ctx.fillStyle = '#c89820';
-    var wf = animFrame % 2;
+    var wf = (k.animFrame || 0) % 2;
     ctx.fillRect(x + 24, y + 4 + (wf === 0 ? 2 : 0), 6, 4);
 
     // ── Big rear wheels ──
@@ -1681,7 +1757,7 @@ function drawKart(x, y, animFrame, invincible, shield, paint, groundY) {
     ctx.fillRect(x + 47, y + 17,  3,  6);
 
     // ── Shield bubble ──
-    if (shield) {
+    if (k.shield) {
         ctx.strokeStyle = 'rgba(100,200,255,0.85)';
         ctx.lineWidth   = 3;
         ctx.beginPath();
@@ -1728,7 +1804,7 @@ function drawTitleScreen() {
     // Animated kart rolling across screen
     var tkx = ((frameCount * 2.5) % (W + 100)) - 80;
     var tky = ROAD_Y - kart.h - 2;
-    drawKart(tkx, tky, Math.floor(frameCount / 8) % 4, 0, false);
+    drawKart({ state:'ground', animFrame:Math.floor(frameCount / 8) % 4 }, tkx, tky);
     // Rocket trail
     if (frameCount % 2 === 0) spawnRocketFlame(tkx - 2, tky + kart.h - 6);
 
@@ -1761,7 +1837,7 @@ function drawTitleScreen() {
     ctx.textAlign = 'center';
     ctx.font = '12px Courier New';
     ctx.fillStyle = '#445566';
-    ctx.fillText('SPACE: Jump     SHIFT: Boost     ESC: Pause', W/2, H - 22);
+    ctx.fillText('SPACE: Jump    SHIFT: Boost    \u2193: Flip    ESC: Pause', W/2, H - 22);
     ctx.textAlign = 'left';
 }
 
@@ -1810,7 +1886,8 @@ function drawAbilityPick() {
         ctx.textAlign = 'left';
         ctx.fillText('[' + (i + 1) + ']', r.x + 8, r.y + 20);
 
-        drawKart(r.x + r.w/2 - 26, r.y + 26, Math.floor(frameCount / 8) % 4, 0, false, ab.paint, r.y + 62);
+        drawKart({ state:'ground', animFrame:Math.floor(frameCount / 8) % 4, paint:ab.paint },
+            r.x + r.w/2 - 26, r.y + 26, r.y + 62);
 
         ctx.font = 'bold 15px Courier New';
         ctx.fillStyle = '#ffffff';
@@ -2136,6 +2213,7 @@ function pauseGame() {
     if (gameState !== 'PLAYING' || isDying) return;
     gameState = 'PAUSED';
     keyHeld = {};
+    trickHeld = false;
     stopMusic();
 }
 
@@ -2188,7 +2266,8 @@ function drawBiomeFlash() {
 }
 
 // ==================== INPUT ====================
-var keyHeld = {};
+var keyHeld   = {};
+var trickHeld = false;   // ↓ / S or the touch FLIP button
 
 function goToAbilityPick() {
     var pool = unlockedAbilities();
@@ -2204,7 +2283,8 @@ function canvasPoint(ev) {
 }
 
 document.addEventListener('keydown', function(e) {
-    if (e.code === 'Space' && gameState === 'PLAYING') e.preventDefault();
+    if ((e.code === 'Space' || e.code === 'ArrowDown') && gameState === 'PLAYING') e.preventDefault();
+    if (e.code === 'ArrowDown' || e.code === 'KeyS') trickHeld = true;
     if (keyHeld[e.code]) return;
     keyHeld[e.code] = true;
     initAudio();
@@ -2256,7 +2336,10 @@ document.addEventListener('keydown', function(e) {
     }
 });
 
-document.addEventListener('keyup', function(e) { keyHeld[e.code] = false; });
+document.addEventListener('keyup', function(e) {
+    keyHeld[e.code] = false;
+    if (e.code === 'ArrowDown' || e.code === 'KeyS') trickHeld = false;
+});
 
 canvas.addEventListener('click', function(ev) {
     initAudio();
@@ -2292,6 +2375,11 @@ document.getElementById('boostBtn').addEventListener('touchstart', function(e) {
     e.preventDefault(); initAudio();
     if (gameState === 'PLAYING') doBoost();
 }, { passive: false });
+
+var trickBtn = document.getElementById('trickBtn');
+trickBtn.addEventListener('touchstart', function(e) { e.preventDefault(); initAudio(); trickHeld = true; }, { passive: false });
+trickBtn.addEventListener('touchend',    function(e) { e.preventDefault(); trickHeld = false; }, { passive: false });
+trickBtn.addEventListener('touchcancel', function()  { trickHeld = false; });
 
 document.getElementById('pauseBtn').addEventListener('touchstart', function(e) {
     e.preventDefault();
@@ -2346,7 +2434,7 @@ function loop() {
         drawObstacles();
         drawCollectibles();
         drawEnemies();
-        if (!isDying) drawKart(KART_SCREEN_X, kart.y, kart.animFrame, kart.invincible, kart.shield);
+        if (!isDying) drawKart(kart, KART_SCREEN_X, kart.y);
         drawParticles();
         if (gameState === 'PLAYING') drawSpeedLines();
         drawBiomeFlash();
