@@ -17,12 +17,13 @@ permissions:
   contents: read
   pull-requests: write
 
-# Review runs (pull_request) never cancel each other. Re-check bursts (review/comment
-# events, e.g. replying to many threads) share a separate group and collapse to the
-# latest run; the gate is a cheap, idempotent GraphQL read.
+# Review runs (open/push/reopen/ready) share one group per PR and a newer push cancels
+# the in-flight one, so a review is never posted for a superseded commit. Re-checks
+# (label/review/comment events) use a separate group, so they never cancel a review,
+# and a burst of them collapses to the latest run (the gate is a cheap GraphQL read).
 concurrency:
-  group: forge-review-${{ github.event.pull_request.number }}-${{ github.event_name == 'pull_request' && 'review' || 'recheck' }}
-  cancel-in-progress: ${{ github.event_name != 'pull_request' }}
+  group: forge-review-${{ github.event.pull_request.number }}-${{ github.event_name == 'pull_request' && contains(fromJSON('["opened","synchronize","reopened","ready_for_review"]'), github.event.action) && 'review' || 'recheck' }}
+  cancel-in-progress: true
 
 jobs:
   review:

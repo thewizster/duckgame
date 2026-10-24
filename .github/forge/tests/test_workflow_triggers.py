@@ -24,12 +24,14 @@ class Triggers(unittest.TestCase):
         # pull_request_review_thread is a webhook, not an Actions trigger; it would invalidate the file.
         self.assertNotIn("pull_request_review_thread", on_block(workflow()))
 
-    def test_rechecks_collapse_but_reviews_never_cancel(self):
+    def test_superseded_runs_cancel_in_separate_groups(self):
+        # Round 3: a newer push cancels an in-flight review so a stale review is never
+        # posted; label/review/comment re-checks have their own group and never cancel a review.
         text = workflow()
         block = text.split("\nconcurrency:\n", 1)[1].split("\njobs:", 1)[0]
-        self.assertIn("github.event_name == 'pull_request'", block, "review runs and re-checks need separate groups")
-        self.assertIn("cancel-in-progress: ${{ github.event_name != 'pull_request' }}", block)
-
+        self.assertIn('["opened","synchronize","reopened","ready_for_review"]', block)
+        self.assertIn("'review' || 'recheck'", block)
+        self.assertIn("cancel-in-progress: true", block)
 
 if __name__ == "__main__":
     unittest.main()
