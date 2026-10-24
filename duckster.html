@@ -594,10 +594,10 @@ function abilityUnlockedBy(achId) {
 
 // ==================== GARAGE (permanent perks bought with banked corn) ====================
 const GARAGE_DEFS = [
-    { id:'chassis', name:'Reinforced Chassis', desc:'+10 max HP per level',                   costs:[50, 100, 180] },
-    { id:'nitro',   name:'Spare Nitro',        desc:'+1 starting boost per level',            costs:[80, 160] },
-    { id:'scoop',   name:'Corn Scoop',         desc:'+25% corn per level',                    costs:[60, 140] },
-    { id:'crew',    name:'Pit Crew Pro',       desc:'First reroll per pit stop free, cheaper repairs', costs:[120] }
+    { id:'chassis', name:'Reinforced Chassis', desc:'+10 max HP per level',                   costs:[100, 200, 350] },
+    { id:'nitro',   name:'Spare Nitro',        desc:'+1 starting boost per level',            costs:[150, 300] },
+    { id:'scoop',   name:'Corn Scoop',         desc:'+25% corn per level',                    costs:[120, 260] },
+    { id:'crew',    name:'Pit Crew Pro',       desc:'First reroll per pit stop free, cheaper repairs', costs:[200] }
 ];
 
 function garageLevel(id) { return meta.garage[id] || 0; }
@@ -1307,15 +1307,15 @@ function drawBossUI() {
 }
 
 // ==================== RIVALS ====================
-// skill scales a rival's top speed relative to MAX_SPEED
+// skill scales a rival's top speed relative to MAX_SPEED; the top two outpace an un-upgraded kart
 const RIVAL_DEFS = [
-    { name:'Mallard Max',   paint:['#2e7d32','#4caf50','#1b4d1e'], driver:'#8a6a4a', skill:0.97 },
-    { name:'Goose Gloria',  paint:['#d8d8d8','#ffffff','#888888'], driver:'#eeeeee', skill:0.93 },
-    { name:'Swan Svetlana', paint:['#ff77aa','#ffaacc','#aa3366'], driver:'#ffffff', skill:0.95 },
-    { name:'Teal Terry',    paint:['#00897b','#26c6da','#004d40'], driver:'#c89820', skill:0.90 },
-    { name:'Loon Lars',     paint:['#2a2a2a','#4a4a4a','#000000'], driver:'#666666', skill:0.88 },
-    { name:'Pelican Pete',  paint:['#ff9800','#ffb74d','#a65c00'], driver:'#f0e0c0', skill:0.92 },
-    { name:'Coot Carla',    paint:['#5c6bc0','#7986cb','#283593'], driver:'#333344', skill:0.99 }
+    { name:'Mallard Max',   paint:['#2e7d32','#4caf50','#1b4d1e'], driver:'#8a6a4a', skill:1.01 },
+    { name:'Goose Gloria',  paint:['#d8d8d8','#ffffff','#888888'], driver:'#eeeeee', skill:0.96 },
+    { name:'Swan Svetlana', paint:['#ff77aa','#ffaacc','#aa3366'], driver:'#ffffff', skill:0.98 },
+    { name:'Teal Terry',    paint:['#00897b','#26c6da','#004d40'], driver:'#c89820', skill:0.93 },
+    { name:'Loon Lars',     paint:['#2a2a2a','#4a4a4a','#000000'], driver:'#666666', skill:0.91 },
+    { name:'Pelican Pete',  paint:['#ff9800','#ffb74d','#a65c00'], driver:'#f0e0c0', skill:0.95 },
+    { name:'Coot Carla',    paint:['#5c6bc0','#7986cb','#283593'], driver:'#333344', skill:1.03 }
 ];
 
 function spawnRivals() {
@@ -1337,7 +1337,7 @@ function rivalSpeed(r) {
     var skill = r.def.skill + (gpLevel - 1) * 0.02;
     var ramp  = (BASE_SPEED + (r.worldX - 200) * SPEED_ACCEL) * skill + 0.4;
     var spd   = Math.min(MAX_SPEED * skill, ramp);
-    if (r.worldX - kart.worldX > 3000) spd *= 0.93;   // leaders ease off so the pack stays catchable
+    if (r.worldX - kart.worldX > 2000) spd *= 0.94;   // leaders ease off so the pack stays catchable
     return spd;
 }
 
