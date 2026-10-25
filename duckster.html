@@ -1465,7 +1465,6 @@ function drawRivals() {
 }
 
 function drawCountdown() {
-    if (countdown <= 0 && countdown > -40) { countdown--; }
     if (countdown <= -40 || gameState !== 'PLAYING') return;
     var label = countdown > 0 ? String(Math.ceil(countdown / 60)) : 'GO!';
     ctx.textAlign = 'center';
@@ -1632,6 +1631,7 @@ function updatePhysics() {
         updateHUD();
         return;
     }
+    if (countdown > -40) countdown--;   // "GO!" fades out over 40 frames
     runFrames++;
 
     // Biome hazard under the kart (sand/oil/ice act on the wheels, zero-G on the whole column)
