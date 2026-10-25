@@ -3103,6 +3103,7 @@ document.getElementById('burstBtn').addEventListener('touchstart', function(e) {
 const ATTRACT_TOUR = [{ biome:0 }, { boss:0 }, { biome:1 }, { biome:2 }, { boss:2 }, { biome:3 }, { biome:4 }, { boss:4 }];
 const ATTRACT_STOP_FRAMES = 20 * 60;   // time at each biome stop
 const ATTRACT_BOSS_FRAMES = 25 * 60;   // a boss fight that runs longer than this is finished off
+// attractStop is -1 until a run starts; the first drive frame then sees no current stop and warps to stop 0
 var attractState = '', attractTimer = 0, attractStop = -1, attractStopTimer = 0, attractBurstCd = 0, attractBossSeen = false;
 
 function attractSetup() {
