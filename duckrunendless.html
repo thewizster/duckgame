@@ -235,7 +235,7 @@ let musicStep      = 0;
 let currentMusicBiome = -1;
 
 function initAudio() {
-    if (audioCtx) return;
+    if (audioCtx || ATTRACT) return;   // the hub's demo screens stay silent
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 }
 
@@ -321,6 +321,7 @@ function sfxHpRegen()  { playTone(520,'sine',    0.05,0.09); }
 function sfxBossAlert(){ [N.C4,N.G3,N.C4,N.G3].forEach(function(f,i){ playTone(f,'sawtooth',0.14,0.18,i*0.18); }); }
 
 // ==================== CONSTANTS ====================
+const ATTRACT           = /[?&]attract\b/.test(location.search);   // self-playing demo for the hub page
 const DUCK_SCREEN_X     = 150;
 const GRAVITY           = 0.45;
 const MAX_FALL          = 12;
@@ -570,6 +571,7 @@ function loadMeta() {
 }
 
 function saveMeta() {
+    if (ATTRACT) return;
     try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch(e) {}
 }
 
@@ -3094,8 +3096,140 @@ document.getElementById('burstBtn').addEventListener('touchstart', function(e) {
     if (gameState === 'PLAYING') doBurst();
 }, { passive: false });
 
+// ==================== ATTRACT MODE ====================
+// duckrunendless.html?attract plays itself on the hub page, like an arcade cabinet's attract loop:
+// title, duck pick, then a tour of short stops through every biome and some boss fights. Nothing is
+// saved, every duck is unlocked for variety, and the duck can't die (a safety burst catches sky falls).
+const ATTRACT_TOUR = [{ biome:0 }, { boss:0 }, { biome:1 }, { biome:2 }, { boss:2 }, { biome:3 }, { biome:4 }, { boss:4 }];
+const ATTRACT_STOP_FRAMES = 20 * 60;   // time at each biome stop
+const ATTRACT_BOSS_FRAMES = 25 * 60;   // a boss fight that runs longer than this is finished off
+// attractStop is -1 until a run starts; the first drive frame then sees no current stop and warps to stop 0
+var attractState = '', attractTimer = 0, attractStop = -1, attractStopTimer = 0, attractBurstCd = 0, attractBossSeen = false;
+
+function attractSetup() {
+    document.documentElement.classList.add('attract');
+    meta.achievements = ACHIEVEMENT_DEFS.map(function(a) { return a.id; });
+    meta.diveHint = true;
+}
+
+function updateAttract() {
+    if (!ATTRACT) return;
+    if (gameState !== attractState) { attractState = gameState; attractTimer = 0; }
+    attractTimer++;
+    if (gameState === 'TITLE' && attractTimer > 240) goToAbilityPick();
+    else if (gameState === 'ABILITY_PICK' && attractTimer > 150) {
+        attractStop = -1;
+        selectAbility(Math.floor(Math.random() * abilityChoices.length));
+    }
+    else if (gameState === 'UPGRADE' && attractTimer > 100) applyUpgrade(Math.floor(Math.random() * upgradeChoices.length));
+    else if (gameState === 'PAUSED') resumeGame();
+    else if (gameState === 'DEAD' && attractTimer > 300) quitToTitle();
+    else if (gameState === 'PLAYING') attractRun();
+}
+
+// Jump the run to world distance px, landing the duck on a fresh ledge
+function attractWarp(px) {
+    var idx = 0;
+    for (var i = BIOMES.length - 1; i >= 0; i--) if (px >= BIOMES[i].startDist * 10) { idx = i; break; }
+    var b = BIOMES[idx];
+    duck.worldX = 200 + px; distancePx = px;
+    cameraX = duck.worldX - DUCK_SCREEN_X;
+    boss = null; bossShots = []; bossCols = [];
+    lapBosses = [];
+    for (i = 0; i < BOSS_DEFS.length; i++) if (bossTriggerPx(i) < px) lapBosses.push(i);
+    enemies = []; collectibles = []; platforms = [];
+    var ledgeY = b.floorType === 'lava' ? LAVA_SURFACE_Y - 40 : b.floorType === 'void' ? 380 : 280;
+    platforms.push({ worldX:duck.worldX - 120, y:ledgeY, w:700, h:14, biomeIdx:idx });
+    duck.y = ledgeY - duck.h; duck.dy = 0; duck.state = 'ground'; duck.airJumps = 0;
+    nextPlatformX = duck.worldX + 680; nextEnemyX = duck.worldX + 700; nextCollectibleX = duck.worldX + 300;
+    lastUpgradePx = Math.floor(px / UPGRADE_EVERY_PX) * UPGRADE_EVERY_PX;
+}
+
+function attractNextStop() {
+    attractStop++;
+    attractStopTimer = 0; attractBossSeen = false;
+    var stop = ATTRACT_TOUR[attractStop];
+    attractWarp(stop.boss !== undefined ? bossTriggerPx(stop.boss) - 500 : BIOMES[stop.biome].startDist * 10 + 300);
+}
+
+// An enemy about to reach the duck's height band within `frames`?
+function attractThreatAhead(frames) {
+    var front = duck.worldX + duck.w, spd = Math.max(duck.speed, 2.5);
+    for (var i = 0; i < enemies.length; i++) {
+        var e = enemies[i];
+        var ex = e.worldX - front;
+        if (ex > -10 && ex < spd * frames && Math.abs((e.y + e.h / 2) - (duck.y + duck.h / 2)) < 50) return true;
+    }
+    return false;
+}
+
+// The platform the duck is standing on, if any
+function attractPlatformUnder() {
+    for (var i = 0; i < platforms.length; i++) {
+        var p = platforms[i];
+        if (duck.worldX + duck.w > p.worldX && duck.worldX < p.worldX + p.w && Math.abs(duck.y + duck.h - p.y) < 4) return p;
+    }
+    return null;
+}
+
+function attractRun() {
+    var b = BIOMES[currentBiomeIdx];
+    if (duck.hp < duck.maxHp * 0.4) duck.hp = duck.maxHp;   // the demo never dies
+    duck.breath = Math.max(duck.breath, duck.maxBreath * 0.5);
+    if (attractBurstCd > 0) attractBurstCd--;
+
+    // Safety net: a burst catches the duck before it falls out of the sky
+    if (b.floorType === 'void' && duck.y > H - 60 && duck.dy > 0) {
+        duck.dy = BURST_POWER;
+        spawnBurstFX(DUCK_SCREEN_X + 16, duck.y + duck.h / 2);
+    }
+
+    // Tour: move on once this stop has had its time (boss stops wait for the boss to fall)
+    // (beating the Storm Serpent starts a new lap and clears lapBosses, so watch for the boss leaving instead)
+    var stop = ATTRACT_TOUR[attractStop];
+    attractStopTimer++;
+    if (boss) attractBossSeen = true;
+    if (stop && stop.boss !== undefined && boss && attractStopTimer > ATTRACT_BOSS_FRAMES) {
+        while (boss) { boss.invuln = 0; hitBoss(); }
+    }
+    var stopDone = !stop || (stop.boss !== undefined ? attractBossSeen && !boss && attractStopTimer > 240
+                                                     : attractStopTimer > ATTRACT_STOP_FRAMES);
+    if (stopDone) {
+        if (attractStop < ATTRACT_TOUR.length - 1) attractNextStop();
+        else { quitToTitle(); return; }   // tour over: back to the title, like an arcade attract loop
+    }
+
+    // Bosses: burst up into one that swoops down dazed overhead
+    if (boss) {
+        if (duck.burstCharges === 0 && frameCount % 240 === 0) duck.burstCharges = 1;
+        var over = Math.abs(boss.x + boss.w / 2 - (DUCK_SCREEN_X + 16)) < boss.w / 2 + 10;
+        if ((boss.state === 'dazed' || boss.state === 'swoop') && over && boss.invuln <= 0 && attractBurstCd === 0 && duck.burstCharges > 0) {
+            doBurst(); attractBurstCd = 60;
+            return;
+        }
+    }
+
+    // Enemies: hop over them, or burst through if one is right on top of the duck
+    if (attractThreatAhead(16)) {
+        if (duck.state !== 'air') { doJump(); return; }
+        if (attractThreatAhead(6) && duck.burstCharges > 0 && attractBurstCd === 0) { doBurst(); attractBurstCd = 60; return; }
+    }
+
+    // Platforms: jump at the edge, unless the floor below is safe to drop onto
+    if (duck.state === 'ground') {
+        var p = attractPlatformUnder();
+        var safeFloor = b.floorType === 'ice';
+        if (p && !safeFloor && duck.worldX + duck.w + duck.speed * 4 > p.worldX + p.w) doJump();
+    } else if (duck.state === 'water' && Math.random() < 0.015) {
+        doJump();   // the odd swim stroke to hop onto logs
+    } else if (duck.state === 'air' && duck.dy > 2 && duck.airJumps < duck.maxAirJumps && (b.floorType === 'lava' || b.floorType === 'void') && duck.y > 300) {
+        doJump();
+    }
+}
+
 // ==================== GAME LOOP ====================
 function loop() {
+    updateAttract();
     frameCount++;
     uiButtons = [];
 
@@ -3181,12 +3315,14 @@ function loop() {
 // ==================== FIT TO SCREEN ====================
 // Scale the whole 806x506 game (canvas + border + HUD + touch buttons) to the window
 function fitToScreen() {
-    var s = Math.min(window.innerWidth / 806, (window.innerHeight - 34) / 506, 1.5);
+    var s = ATTRACT ? Math.min(window.innerWidth / 806, window.innerHeight / 506)
+                    : Math.min(window.innerWidth / 806, (window.innerHeight - 34) / 506, 1.5);
     document.getElementById('gameContainer').style.transform = 'scale(' + s + ')';
 }
 window.addEventListener('resize', fitToScreen);
 
 // ==================== BOOTSTRAP ====================
+if (ATTRACT) attractSetup();
 fitToScreen();
 loop();
 </script>
@@ -3205,6 +3341,11 @@ loop();
         z-index: 999;
     }
     #backLink:hover { opacity: 1; }
+
+    /* ?attract: a bare, self-playing screen embedded in the hub page */
+    html.attract body { padding-bottom: 0; background: #000; overflow: hidden; }
+    html.attract #gameContainer { box-shadow: none; }
+    html.attract #backLink, html.attract #touchControls, html.attract #pauseBtn { display: none !important; }
 </style>
 <a id="backLink" href="index.html">&#8592; choose a game</a>
 </body>

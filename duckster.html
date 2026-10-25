@@ -256,7 +256,7 @@ let musicStep         = 0;
 let currentMusicBiome = -1;
 
 function initAudio() {
-    if (audioCtx) return;
+    if (audioCtx || ATTRACT) return;   // the hub's demo screens stay silent
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 }
 
@@ -343,6 +343,7 @@ function sfxVictory() { [N.C5,N.E5,N.G5,N.C6,N.E6].forEach(function(f,i){ playTo
 function sfxHpRegen() { playTone(660,'sine',0.06,0.06); playTone(880,'sine',0.04,0.06,0.04); }
 
 // ==================== CONSTANTS ====================
+const ATTRACT          = /[?&]attract\b/.test(location.search);   // self-playing demo for the hub page
 const KART_SCREEN_X    = 160;
 const GRAVITY          = 0.50;
 const MAX_FALL         = 14;
@@ -638,6 +639,7 @@ function loadMeta() {
 }
 
 function saveMeta() {
+    if (ATTRACT) return;
     try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch(e) {}
 }
 
@@ -3286,6 +3288,134 @@ document.getElementById('pauseBtn').addEventListener('touchstart', function(e) {
     if (gameState === 'PLAYING') pauseGame(); else resumeGame();
 }, { passive: false });
 
+// ==================== ATTRACT MODE ====================
+// duckster.html?attract plays itself on the hub page, like an arcade cabinet's attract loop:
+// title, kart pick, then a tour of short stops through every biome and some boss duels, ending at
+// the finish line. Nothing is saved, every kart is unlocked for variety, and the kart can't wipe out.
+const ATTRACT_TOUR = [{ biome:0 }, { boss:0 }, { biome:1 }, { biome:2 }, { boss:2 }, { biome:3 }, { biome:4 }, { boss:4 }];
+const ATTRACT_STOP_FRAMES = 20 * 60;   // time at each biome stop
+const ATTRACT_BOSS_FRAMES = 25 * 60;   // a boss duel that runs longer than this is finished off
+// attractStop is -1 until a run starts; the first drive frame then sees no current stop and warps to stop 0
+var attractState = '', attractTimer = 0, attractStop = -1, attractStopTimer = 0, attractBoostCd = 0;
+
+function attractSetup() {
+    document.documentElement.classList.add('attract');
+    meta.achievements = ACHIEVEMENT_DEFS.map(function(a) { return a.id; });
+    meta.totalRuns = 99;   // no first-run tips
+}
+
+function updateAttract() {
+    if (!ATTRACT) return;
+    if (gameState !== attractState) { attractState = gameState; attractTimer = 0; }
+    attractTimer++;
+    if (gameState === 'TITLE' && attractTimer > 240) goToAbilityPick();
+    else if (gameState === 'ABILITY_PICK' && attractTimer > 150) {
+        attractStop = -1;
+        selectAbility(Math.floor(Math.random() * abilityChoices.length));
+    }
+    else if (gameState === 'UPGRADE' && attractTimer > 100) applyUpgrade(Math.floor(Math.random() * upgradeChoices.length));
+    else if (gameState === 'PAUSED') resumeGame();
+    else if ((gameState === 'DEAD' || gameState === 'VICTORY') && attractTimer > 420) quitToTitle();
+    else if (gameState === 'PLAYING' && countdown <= 0) attractDrive();
+}
+
+// Jump the race to course distance px, bringing the rival pack along
+function attractWarp(px) {
+    kart.worldX = 200 + bossPx + px;
+    distancePx  = px;
+    cameraX     = kart.worldX - KART_SCREEN_X;
+    boss = null; bossShots = [];
+    for (var i = 0; i < BOSS_DEFS.length; i++) bossDone[i] = bossTriggerPx(i) < px;
+    obstacles = []; enemies = []; collectibles = [];
+    nextObstacleX = kart.worldX + 300; nextEnemyX = kart.worldX + 700; nextCollectibleX = kart.worldX + 200;
+    lastUpgradePx = Math.floor(px / UPGRADE_EVERY_PX) * UPGRADE_EVERY_PX;
+    var offsets = shuffleArray([-320, -200, -80, 130, 260, 400, 560]);
+    rivals.forEach(function(r, j) {
+        r.ko = false; r.worldX = kart.worldX + offsets[j]; r.y = ROAD_Y - r.h;
+        r.dy = 0; r.state = 'ground'; r.rot = 0; r.boostTimer = 0;
+    });
+    biomeFlash = 30;
+}
+
+function attractNextStop() {
+    attractStop++;
+    attractStopTimer = 0;
+    var stop = ATTRACT_TOUR[attractStop];
+    attractWarp(stop.boss !== undefined ? bossTriggerPx(stop.boss) - 500 : BIOMES[stop.biome].startDist + 300);
+}
+
+// Frames until the kart touches the road again
+function attractAirFrames() {
+    var g = (kart.swiftMode ? GRAVITY * 0.85 : GRAVITY) * (kart.surface === 'lowg' ? 0.35 : 1);
+    var drop = ROAD_Y - (kart.y + kart.h);
+    return (-kart.dy + Math.sqrt(kart.dy * kart.dy + 2 * g * Math.max(0, drop))) / g;
+}
+
+// Is something worth jumping about to reach the kart within `frames`?
+function attractHazardAhead(frames) {
+    var front = kart.worldX + kart.w, spd = Math.max(kartAdvance, 3), i;
+    for (i = 0; i < obstacles.length; i++) {
+        var o = obstacles[i];
+        var risky = (o.type === 'barrier' && !o.smashed) || (o.type === 'patch' && (o.kind === 'fire' || o.kind === 'oil'));
+        var ox = o.worldX - front;
+        if (risky && ox > 0 && ox < spd * frames) return true;
+    }
+    for (i = 0; i < enemies.length; i++) {
+        var e = enemies[i];
+        if (e.hp <= 0 || e.y + e.h < ROAD_Y - 34) continue;   // fliers pass overhead
+        var closing = spd - (e.dir || 0) * (e.speed || 0);
+        var ex = e.worldX - front;
+        if (ex > 0 && closing > 0 && ex / closing < frames) return true;
+    }
+    for (i = 0; i < bossShots.length; i++) {
+        var s = bossShots[i];
+        var sx = s.x - (KART_SCREEN_X + kart.w);
+        if (s.kind === 'roll' && sx > 0 && s.vx < 0 && sx / -s.vx < frames) return true;
+    }
+    return false;
+}
+
+function attractDrive() {
+    if (kart.hp < kart.maxHp * 0.4) kart.hp = kart.maxHp;   // the demo never wipes out
+
+    // Tour: move on once this stop has had its time (boss stops wait for the boss to fall).
+    // attractStopTimer only counts racing frames, so pit stops don't stretch a stop.
+    var stop = ATTRACT_TOUR[attractStop];
+    attractStopTimer++;
+    if (stop && stop.boss !== undefined && boss && attractStopTimer > ATTRACT_BOSS_FRAMES) {
+        while (boss) { boss.invuln = 0; hitBoss(); }
+    }
+    var stopDone = !stop || (stop.boss !== undefined ? bossDone[stop.boss] && !boss && attractStopTimer > 240
+                                                     : attractStopTimer > ATTRACT_STOP_FRAMES);
+    if (stopDone && attractStop < ATTRACT_TOUR.length - 1) attractNextStop();   // after the last boss, race to the finish
+
+    // Backflip whenever there's air for another full turn
+    if (kart.state === 'air') {
+        var turnLeft = kart.flipRot > 0 ? (Math.PI * 2 - kart.flipRot) / (Math.PI * 2 / FLIP_FRAMES) : 0;
+        trickHeld = attractAirFrames() > turnLeft + FLIP_FRAMES + 3;
+    } else {
+        trickHeld = false;
+    }
+
+    // Boost-ram whatever is close: a boss sliding in, rivals just ahead, or (with charges to spare) the next hazard
+    if (attractBoostCd > 0) attractBoostCd--;
+    if (boss && kart.boostCharges === 0 && frameCount % 300 === 0) kart.boostCharges = 1;
+    if (kart.boostCharges > 0 && kart.boostTimer === 0 && attractBoostCd === 0) {
+        var target = boss && boss.state !== 'intro' && boss.x - (KART_SCREEN_X + kart.w) < 110;
+        for (var i = 0; i < rivals.length && !target; i++) {
+            var gap = rivals[i].worldX - (kart.worldX + kart.w);
+            if (!rivals[i].ko && gap > 30 && gap < 200) target = true;
+        }
+        if (!target && kart.boostCharges > 2 && attractHazardAhead(10)) target = true;
+        if (target) { doBoost(); attractBoostCd = 90; }
+    }
+
+    // Jump hazards so the apex clears them; hop onto a dazed boss
+    if (kart.state === 'ground' && kart.boostTimer === 0) {
+        if (attractHazardAhead(14) || (boss && boss.state === 'dazed' && boss.timer < 60)) doJump();
+    }
+}
+
 // ==================== GAME LOOP ====================
 const STEP_MS   = 1000 / 60;  // the game is tuned for one step per 60 Hz frame
 const MAX_STEPS = 4;          // catch-up limit after a stall (e.g. a background tab)
@@ -3308,6 +3438,7 @@ function loop(now) {
 
 // One frame of update + draw
 function step() {
+    updateAttract();
     frameCount++;
     uiButtons = [];
     ctx.save();
@@ -3399,7 +3530,8 @@ function step() {
 // ==================== FIT TO SCREEN ====================
 // Scale the whole 806x506 game (canvas + border + HUD + touch buttons) to the window
 function fitToScreen() {
-    var s = Math.min(window.innerWidth / 806, (window.innerHeight - 34) / 506, 1.5);
+    var s = ATTRACT ? Math.min(window.innerWidth / 806, window.innerHeight / 506)
+                    : Math.min(window.innerWidth / 806, (window.innerHeight - 34) / 506, 1.5);
     document.getElementById('gameContainer').style.transform = 'scale(' + s + ')';
 }
 window.addEventListener('resize', fitToScreen);
@@ -4125,6 +4257,7 @@ function drawCollectibles() {
 }
 
 // ==================== BOOTSTRAP ====================
+if (ATTRACT) attractSetup();
 fitToScreen();
 requestAnimationFrame(loop);
 </script>
@@ -4143,6 +4276,11 @@ requestAnimationFrame(loop);
         z-index: 999;
     }
     #backLink:hover { opacity: 1; }
+
+    /* ?attract: a bare, self-playing screen embedded in the hub page */
+    html.attract body { padding-bottom: 0; background: #000; overflow: hidden; }
+    html.attract #gameContainer { box-shadow: none; }
+    html.attract #backLink, html.attract #touchControls, html.attract #pauseBtn { display: none !important; }
 </style>
 <a id="backLink" href="index.html">&#8592; choose a game</a>
 </body>

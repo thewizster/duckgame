@@ -6,11 +6,11 @@ Two browser games starring the same pixel duck. No frameworks, no dependencies, 
 
 **Live on GitHub Pages:** https://thewizster.github.io/duckgame/
 
-Open `index.html` to choose a game, or jump straight to one. To play offline, download the repo and open `index.html` in any modern browser.
+Open `index.html` and you're in an 80s arcade: two cabinets, each running a **live demo** of its game, under a neon sunset. Click a cabinet (or use **◀ ▶** and **Enter**, or press **1** / **2**) to drop a coin and start playing. The top bar shows your best distance in each game. To play offline, download the repo and open `index.html` in any modern browser.
 
 | File | Game |
 |---|---|
-| `index.html` | Game select hub |
+| `index.html` | Arcade hub: pick a cabinet to play |
 | `duckrunendless.html` | **Duck Run: Endless**: an endless roguelite runner through water, ice, lava and sky |
 | `duckster.html` | **Duckster: Road Rage**: a kart-racing roguelite against seven rivals |
 
@@ -20,6 +20,15 @@ Open `index.html` to choose a game, or jump straight to one. To play offline, do
 - Each game's tuning numbers live in the `CONSTANTS` section near the top of its script. The **Under the hood** notes below name the ones that matter.
 - Progress is saved in `localStorage` (`duckrun_meta`, `duckster_meta`).
 - [CLAUDE.md](CLAUDE.md) documents the code layout, conventions and how to test headlessly with Playwright.
+
+<details>
+<summary>Under the hood: the arcade hub and attract mode</summary>
+
+- The cabinet screens are the real games, loaded in iframes as `duckrunendless.html?attract` and `duckster.html?attract`. With `?attract`, a game sets `ATTRACT`. It skips creating audio, `saveMeta()` does nothing, every duck/kart is unlocked in memory only, and the menus and touch buttons are hidden.
+- The **ATTRACT MODE** section in each game drives the demo loop: title, then a random pick, then `ATTRACT_TOUR`, a list of short stops through every biome plus three boss fights, using `attractWarp()` to jump ahead. The autopilot jumps hazards using a timed lookahead, boosts or bursts into rivals and bosses, and backflips when there's airtime. The demo can't die: HP is refilled, and Duck Run gets a safety burst above the void. One full Duckster loop takes about 3 minutes and ends at the finish line.
+- `index.html` has no assets. The logo and marquees are drawn with a 5×7 pixel font (`FONT`) at whole-number scales, and the synthwave sky is a canvas. Best distances are read-only from both saves. Cabinets are stretched links (`.cab-link`), so modified clicks open a new tab, and keyboard focus skips the iframes.
+
+</details>
 
 ---
 
