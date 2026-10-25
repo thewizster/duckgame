@@ -364,6 +364,7 @@ const SHIELD_RECHARGE_PX = 4000;  // Roll Cage re-arms 400m after breaking
 const EXHAUST_RADIUS    = 150;    // Exhaust Fire blast radius (px)
 const FLIP_FRAMES       = 28;     // frames per full backflip
 const BAD_LANDING_DAMAGE = 20;    // landing mid-flip
+const STOMP_ZONE        = 0.38;   // fraction of an enemy's height (from the top) that counts as a stomp
 const TRICK_CORN        = 5;      // corn per completed flip
 const MAX_GP            = 9;      // highest Grand Prix level
 const DIST_MILESTONES   = [500, 1000, 2000, 3000, 4000, 5000, 6000, 7000];   // metres
@@ -3563,8 +3564,8 @@ function updateEnemies() {
         if (kart.boostTimer > 0) {
             e.hp = 0;
             shakeFrames = 4; shakeMagnitude = 3;
-        // Stomp: falling fast onto top third of enemy
-        } else if (kart.dy > 1.5 && kart.y + kart.h <= e.y + e.h * 0.38 + 4) {
+        // Stomp: falling fast onto the top of the enemy
+        } else if (kart.dy > 1.5 && kart.y + kart.h <= e.y + e.h * STOMP_ZONE + 4) {
             e.hp = 0;
             kart.dy = -5.5; kart.state = 'air'; kart.invincible = 28;
         } else {
