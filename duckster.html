@@ -1456,8 +1456,9 @@ function drawRivals() {
         var label = nearest.def.name + ' ' + m + 'm \u25B6';
         ctx.font = 'bold 11px Courier New';
         ctx.textAlign = 'right';
+        var lw = ctx.measureText(label).width;
         ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        ctx.fillRect(W - ctx.measureText(label).width - 16, ROAD_Y - 78, ctx.measureText(label).width + 12, 18);
+        ctx.fillRect(W - lw - 16, ROAD_Y - 78, lw + 12, 18);
         ctx.fillStyle = nearest.def.paint[1];
         ctx.fillText(label, W - 10, ROAD_Y - 65);
         ctx.textAlign = 'left';
@@ -1477,25 +1478,35 @@ function drawCountdown() {
 }
 
 // ==================== HUD ====================
+var hudCache = {};
+
+// updateHUD runs every frame, so only touch an element when its text or style actually changes
+function setHud(id, prop, value) {
+    var k = id + '.' + prop;
+    if (hudCache[k] === value) return;
+    hudCache[k] = value;
+    var el = document.getElementById(id);
+    if (prop === 'text') el.textContent = value;
+    else                 el.style[prop] = value;
+}
+
 function updateHUD() {
-    var pct  = Math.max(0, kart.hp / kart.maxHp * 100);
-    var hpEl = document.getElementById('hpBarInner');
-    hpEl.style.width      = pct + '%';
-    hpEl.style.background = pct > 60 ? '#2ecc71' : pct > 30 ? '#f1c40f' : '#e74c3c';
+    var pct = Math.max(0, kart.hp / kart.maxHp * 100);
+    setHud('hpBarInner', 'width',      pct + '%');
+    setHud('hpBarInner', 'background', pct > 60 ? '#2ecc71' : pct > 30 ? '#f1c40f' : '#e74c3c');
 
     var n = kart.boostCharges, boosts = '';
     if (n > 5) boosts = '\u26A1 x' + n;
     else for (var i = 0; i < n; i++) boosts += '\u26A1';
     if (kart.boostTimer > 0) boosts += ' \u25BA';
-    document.getElementById('boostDisplay').textContent    = 'BOOST ' + (boosts || '0');
-    document.getElementById('distanceDisplay').textContent = distMeters() + 'm';
-    document.getElementById('biomeDisplay').textContent    = zoneLabel();
-    document.getElementById('cornDisplay').textContent     = '\uD83C\uDF3D ' + corn;
-    document.getElementById('killDisplay').textContent     = '\uD83D\uDC80 ' + kills;
+    setHud('boostDisplay',    'text', 'BOOST ' + (boosts || '0'));
+    setHud('distanceDisplay', 'text', distMeters() + 'm');
+    setHud('biomeDisplay',    'text', zoneLabel());
+    setHud('cornDisplay',     'text', '\uD83C\uDF3D ' + corn);
+    setHud('killDisplay',     'text', '\uD83D\uDC80 ' + kills);
     var pos = racePosition();
-    var posEl = document.getElementById('posDisplay');
-    posEl.textContent = 'POS ' + pos + ' / ' + (RIVAL_DEFS.length + 1);
-    posEl.style.color = pos === 1 ? '#ffd700' : pos <= 3 ? '#ffcc66' : '#ff8866';
+    setHud('posDisplay', 'text',  'POS ' + pos + ' / ' + (RIVAL_DEFS.length + 1));
+    setHud('posDisplay', 'color', pos === 1 ? '#ffd700' : pos <= 3 ? '#ffcc66' : '#ff8866');
 
     updateUpgradeChips();
 }
