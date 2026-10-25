@@ -6,7 +6,7 @@ This file documents the codebase structure, conventions, and development workflo
 
 This repo hosts two single-file browser games starring the same pixel duck, plus a hub page to pick one:
 
-- `index.html`: game-select hub (static page linking to both games)
+- `index.html`: arcade-style hub. Each game runs live in an iframe as `<game>.html?attract` (a self-playing, muted, save-free demo), and clicking a cabinet opens the game
 - `duckrunendless.html`: **Duck Run: Endless**, documented in detail below
 - `duckster.html`: **Duckster: Road Rage**, a go-kart racing roguelite with the same single-file approach (its own code, documented in [Duckster: Road Rage](#duckster-road-rage) below)
 
@@ -26,7 +26,7 @@ The project is a showcase of what an AI-built, single-file, fully offline browse
 
 ```
 duckgame/
-├── index.html            # Game-select hub
+├── index.html            # Arcade hub with live attract-mode demos
 ├── duckrunendless.html   # Duck Run: Endless (HTML + CSS + JS)
 ├── duckster.html         # Duckster: Road Rage (HTML + CSS + JS, ~4,100 lines)
 ├── duckgame.jpg          # Reference sketch used during initial development
@@ -55,6 +55,8 @@ node -e "const h=require('fs').readFileSync('duckrunendless.html','utf8');new Fu
 (Swap in `duckster.html` to check Duckster.)
 
 For behavioural checks, drive the game headlessly with Playwright (Chromium is pre-installed in cloud sessions; the module lives at `/opt/node-tools/node_modules/playwright`). Global `let`/`var`/`function` names are reachable via `page.evaluate('...')`, so tests can jump straight to a state, e.g. `duck.worldX = 200 + bossTriggerPx(2) + 10` to summon the Frost Yeti, or `while (boss) { boss.invuln = 0; hitBoss(); }` to finish a boss. Always collect `pageerror` events and finish by playing the game manually.
+
+**Attract mode:** both games accept `?attract`. `ATTRACT` (in CONSTANTS) disables audio and saving and hides the UI chrome. `updateAttract()` runs at the top of each frame (Duckster's `step()`, Duck Run's `loop()`) and drives the demo through `ATTRACT_TOUR` with `attractWarp()`. When you change state names, `startRun()`, boss states or the menu flow, check that the hub demos still loop: load `?attract`, fast-forward, and confirm `localStorage` stays empty and there are no page errors.
 
 **Very large single edits have timed out in the past** — make changes in several focused edits rather than rewriting the whole file at once.
 
@@ -153,6 +155,7 @@ Run state (reset in `startRun()`): `fish`, `kills`, `distancePx`, `currentBiomeI
 - Do not introduce external dependencies, assets, fonts, or network requests (the game must run offline from one file)
 - Do not split into multiple files or add a build system, framework, or TypeScript
 - Do not apply damage anywhere except `hurtDuck()`, and reset any new per-run state in `startRun()`
+- New code that writes to `localStorage` or creates audio must respect `ATTRACT`, so the hub demos stay silent and save-free
 
 ## Adding Features — Guidelines
 
