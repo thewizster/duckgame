@@ -351,6 +351,7 @@ const BOOST_SPEED      = 5.0;     // extra px/frame while boost active
 const BASE_SPEED       = 3.0;
 const MAX_SPEED        = 7.0;
 const SPEED_ACCEL      = 0.00030;
+const TURBO_BONUS      = 0.4;     // Turbo Engine top-speed bonus (rivals don't get it, so keep it modest)
 const HIT_DAMAGE       = 25;
 const HIT_INV_FRAMES   = 80;
 const ROAD_Y           = 380;     // top of the road surface
@@ -457,7 +458,7 @@ const BIOMES = [
 const UPGRADE_DEFS = [
     { id:'double_jump',    name:'Suspension Springs', short:'SPRING', desc:'Jump once more while airborne',              color:'#3498db' },
     { id:'roll_cage',      name:'Roll Cage',          short:'CAGE',   desc:'Absorb one hit; recharges 400m after breaking', color:'#1abc9c' },
-    { id:'turbo_engine',   name:'Turbo Engine',       short:'TURBO',  desc:'+0.6 max speed permanently',                color:'#e67e22' },
+    { id:'turbo_engine',   name:'Turbo Engine',       short:'TURBO',  desc:'+0.4 max speed permanently',                color:'#e67e22' },
     { id:'off_road_tires', name:'Off-Road Tires',     short:'TIRES',  desc:'Ramp launches go 30% higher',              color:'#27ae60' },
     { id:'extra_boost',    name:'Nitro Tank',         short:'NITRO',  desc:'+1 boost charge',                           color:'#f1c40f', stack:true },
     { id:'magnet',         name:'Magnet Bumper',      short:'MAGNET', desc:'Auto-collect items within 130px',           color:'#9b59b6' },
@@ -620,14 +621,19 @@ const META_KEY = 'duckster_meta';
 function loadMeta() {
     var m = null;
     try { m = JSON.parse(localStorage.getItem(META_KEY)); } catch(e) {}
-    m = m || {};
-    if (!m.achievements)                     m.achievements = [];
+    // A corrupt save must never stop the game from booting, so reject anything that isn't a plain object
+    if (!m || typeof m !== 'object' || Array.isArray(m)) m = {};
+    if (!Array.isArray(m.achievements))      m.achievements = [];
     if (typeof m.bestDistance !== 'number')  m.bestDistance = 0;
     if (typeof m.totalRuns    !== 'number')  m.totalRuns    = 0;
     if (typeof m.cornBank     !== 'number')  m.cornBank     = 0;
     if (typeof m.gpUnlocked   !== 'number')  m.gpUnlocked   = 1;
-    if (!m.garage)                           m.garage       = {};
-    GARAGE_DEFS.forEach(function(g) { if (typeof m.garage[g.id] !== 'number') m.garage[g.id] = 0; });
+    m.gpUnlocked = Math.max(1, Math.min(MAX_GP, Math.floor(m.gpUnlocked)));
+    if (!m.garage || typeof m.garage !== 'object' || Array.isArray(m.garage)) m.garage = {};
+    GARAGE_DEFS.forEach(function(g) {
+        var lvl = typeof m.garage[g.id] === 'number' ? Math.floor(m.garage[g.id]) : 0;
+        m.garage[g.id] = Math.max(0, Math.min(g.costs.length, lvl));
+    });
     return m;
 }
 
@@ -1308,16 +1314,20 @@ function drawBossUI() {
 }
 
 // ==================== RIVALS ====================
-// skill scales a rival's pace relative to an un-upgraded kart; the top two edge ahead of it
+// skill scales a rival's pace relative to an un-upgraded kart; at GP1 the best only match it
 const RIVAL_DEFS = [
-    { name:'Mallard Max',   paint:['#2e7d32','#4caf50','#1b4d1e'], driver:'#8a6a4a', skill:1.01 },
-    { name:'Goose Gloria',  paint:['#d8d8d8','#ffffff','#888888'], driver:'#eeeeee', skill:0.96 },
-    { name:'Swan Svetlana', paint:['#ff77aa','#ffaacc','#aa3366'], driver:'#ffffff', skill:0.98 },
-    { name:'Teal Terry',    paint:['#00897b','#26c6da','#004d40'], driver:'#c89820', skill:0.93 },
-    { name:'Loon Lars',     paint:['#2a2a2a','#4a4a4a','#000000'], driver:'#666666', skill:0.91 },
-    { name:'Pelican Pete',  paint:['#ff9800','#ffb74d','#a65c00'], driver:'#f0e0c0', skill:0.95 },
-    { name:'Coot Carla',    paint:['#5c6bc0','#7986cb','#283593'], driver:'#333344', skill:1.03 }
+    { name:'Mallard Max',   paint:['#2e7d32','#4caf50','#1b4d1e'], driver:'#8a6a4a', skill:0.99 },
+    { name:'Goose Gloria',  paint:['#d8d8d8','#ffffff','#888888'], driver:'#eeeeee', skill:0.95 },
+    { name:'Swan Svetlana', paint:['#ff77aa','#ffaacc','#aa3366'], driver:'#ffffff', skill:0.97 },
+    { name:'Teal Terry',    paint:['#00897b','#26c6da','#004d40'], driver:'#c89820', skill:0.92 },
+    { name:'Loon Lars',     paint:['#2a2a2a','#4a4a4a','#000000'], driver:'#666666', skill:0.90 },
+    { name:'Pelican Pete',  paint:['#ff9800','#ffb74d','#a65c00'], driver:'#f0e0c0', skill:0.94 },
+    { name:'Coot Carla',    paint:['#5c6bc0','#7986cb','#283593'], driver:'#333344', skill:1.00 }
 ];
+const RIVAL_PACE_GP = 0.008;   // skill added per Grand Prix level above 1
+const RIVAL_BAND_PX = 1500;    // rubber-banding only starts beyond this gap (150m)
+const RIVAL_EASE    = 0.15;    // max slowdown for a leader far ahead
+const RIVAL_PUSH    = 0.10;    // max speed-up for a straggler far behind
 
 function spawnRivals() {
     var defs = shuffleArray(RIVAL_DEFS.slice());
@@ -1334,15 +1344,17 @@ function racePosition() {
     return ahead + 1;
 }
 
-// Rivals pace off the player's un-upgraded speed and rubber-band: leaders ease off and stragglers
-// push harder, so the top rivals hover just ahead and a few clean boosts can take the lead.
+// Rivals pace off the player's un-upgraded speed. Within RIVAL_BAND_PX they race at their own
+// skill, so a lead won with boosts sticks; beyond it, leaders ease off so they stay catchable and
+// stragglers push to keep the pack close, but never faster than the player's base pace.
 function rivalSpeed(r) {
-    var skill = r.def.skill + (gpLevel - 1) * 0.02;
-    var pace  = Math.min(MAX_SPEED, BASE_SPEED + distancePx * SPEED_ACCEL) * skill;
-    var gap   = r.worldX - kart.worldX;
-    if (gap > 0) pace *= 1 - 0.18 * Math.min(1, gap / 1800);
-    else         pace *= 1 + 0.10 * Math.min(1, -gap / 1800);
-    return pace;
+    var base = Math.min(MAX_SPEED, BASE_SPEED + distancePx * SPEED_ACCEL);
+    var pace = base * (r.def.skill + (gpLevel - 1) * RIVAL_PACE_GP);
+    var gap  = r.worldX - kart.worldX;
+    var over = Math.min(1, (Math.abs(gap) - RIVAL_BAND_PX) / RIVAL_BAND_PX);
+    if (over <= 0) return pace;
+    if (gap > 0) return pace * (1 - RIVAL_EASE * over);
+    return Math.max(pace, Math.min(base, pace * (1 + RIVAL_PUSH * over)));
 }
 
 function knockOutRival(r) {
@@ -1369,6 +1381,12 @@ function updateRivals() {
         if (boss) { r.worldX += kartAdvance; continue; }   // the pack holds station during a boss duel
 
         var spd = rivalSpeed(r);
+        // Road hazards slow (or speed) rivals just like the player
+        var rp = r.state === 'ground' ? patchAt(r.worldX, r.w) : null;
+        if (rp && rp.kind !== 'lowg') {
+            spd *= surfaceMul(rp.kind);
+            if (rp.kind === 'sand' && frameCount % 3 === 0) spawnDust(r.worldX - cameraX + 8, ROAD_Y - 2);
+        }
         if (r.boostTimer > 0) { spd += BOOST_SPEED * 0.8; r.boostTimer--; }
         r.worldX += spd;
         r.animFrame = Math.floor((frameCount + i * 3) / 8) % 4;
@@ -1438,8 +1456,9 @@ function drawRivals() {
         var label = nearest.def.name + ' ' + m + 'm \u25B6';
         ctx.font = 'bold 11px Courier New';
         ctx.textAlign = 'right';
+        var lw = ctx.measureText(label).width;
         ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        ctx.fillRect(W - ctx.measureText(label).width - 16, ROAD_Y - 78, ctx.measureText(label).width + 12, 18);
+        ctx.fillRect(W - lw - 16, ROAD_Y - 78, lw + 12, 18);
         ctx.fillStyle = nearest.def.paint[1];
         ctx.fillText(label, W - 10, ROAD_Y - 65);
         ctx.textAlign = 'left';
@@ -1447,7 +1466,6 @@ function drawRivals() {
 }
 
 function drawCountdown() {
-    if (countdown <= 0 && countdown > -40) { countdown--; }
     if (countdown <= -40 || gameState !== 'PLAYING') return;
     var label = countdown > 0 ? String(Math.ceil(countdown / 60)) : 'GO!';
     ctx.textAlign = 'center';
@@ -1460,25 +1478,35 @@ function drawCountdown() {
 }
 
 // ==================== HUD ====================
+var hudCache = {};
+
+// updateHUD runs every frame, so only touch an element when its text or style actually changes
+function setHud(id, prop, value) {
+    var k = id + '.' + prop;
+    if (hudCache[k] === value) return;
+    hudCache[k] = value;
+    var el = document.getElementById(id);
+    if (prop === 'text') el.textContent = value;
+    else                 el.style[prop] = value;
+}
+
 function updateHUD() {
-    var pct  = Math.max(0, kart.hp / kart.maxHp * 100);
-    var hpEl = document.getElementById('hpBarInner');
-    hpEl.style.width      = pct + '%';
-    hpEl.style.background = pct > 60 ? '#2ecc71' : pct > 30 ? '#f1c40f' : '#e74c3c';
+    var pct = Math.max(0, kart.hp / kart.maxHp * 100);
+    setHud('hpBarInner', 'width',      pct + '%');
+    setHud('hpBarInner', 'background', pct > 60 ? '#2ecc71' : pct > 30 ? '#f1c40f' : '#e74c3c');
 
     var n = kart.boostCharges, boosts = '';
     if (n > 5) boosts = '\u26A1 x' + n;
     else for (var i = 0; i < n; i++) boosts += '\u26A1';
     if (kart.boostTimer > 0) boosts += ' \u25BA';
-    document.getElementById('boostDisplay').textContent    = 'BOOST ' + (boosts || '0');
-    document.getElementById('distanceDisplay').textContent = distMeters() + 'm';
-    document.getElementById('biomeDisplay').textContent    = zoneLabel();
-    document.getElementById('cornDisplay').textContent     = '\uD83C\uDF3D ' + corn;
-    document.getElementById('killDisplay').textContent     = '\uD83D\uDC80 ' + kills;
+    setHud('boostDisplay',    'text', 'BOOST ' + (boosts || '0'));
+    setHud('distanceDisplay', 'text', distMeters() + 'm');
+    setHud('biomeDisplay',    'text', zoneLabel());
+    setHud('cornDisplay',     'text', '\uD83C\uDF3D ' + corn);
+    setHud('killDisplay',     'text', '\uD83D\uDC80 ' + kills);
     var pos = racePosition();
-    var posEl = document.getElementById('posDisplay');
-    posEl.textContent = 'POS ' + pos + ' / ' + (RIVAL_DEFS.length + 1);
-    posEl.style.color = pos === 1 ? '#ffd700' : pos <= 3 ? '#ffcc66' : '#ff8866';
+    setHud('posDisplay', 'text',  'POS ' + pos + ' / ' + (RIVAL_DEFS.length + 1));
+    setHud('posDisplay', 'color', pos === 1 ? '#ffd700' : pos <= 3 ? '#ffcc66' : '#ff8866');
 
     updateUpgradeChips();
 }
@@ -1614,6 +1642,7 @@ function updatePhysics() {
         updateHUD();
         return;
     }
+    if (countdown > -40) countdown--;   // "GO!" fades out over 40 frames
     runFrames++;
 
     // Biome hazard under the kart (sand/oil/ice act on the wheels, zero-G on the whole column)
@@ -1628,13 +1657,13 @@ function updatePhysics() {
     if (kart.spin > 0) kart.spin--;
     if (patch && patch.kind === 'fire' && kart.y + kart.h > ROAD_Y - 18)
         hurtKart(20, KART_SCREEN_X + kart.w / 2, ROAD_Y - 6);
-    var surfMul = kart.surface === 'sand' ? 0.6 : kart.surface === 'ice' ? 1.35 : 1;
+    var surfMul = surfaceMul(kart.surface);
     if (kart.surface === 'sand' && frameCount % 3 === 0) spawnDust(KART_SCREEN_X + 8, ROAD_Y - 2);
     if (kart.surface === 'ice' && frameCount % 4 === 0)
         spawnParticle(KART_SCREEN_X + 10, ROAD_Y - 2, -2, -1, 14, '#e8f8ff', 2);
 
     // Speed ramp-up over distance
-    var maxSpd = MAX_SPEED + (activeUpgrades.indexOf('turbo_engine') !== -1 ? 0.6 : 0);
+    var maxSpd = MAX_SPEED + (activeUpgrades.indexOf('turbo_engine') !== -1 ? TURBO_BONUS : 0);
     kart.speed = Math.min(maxSpd,
         BASE_SPEED + (kart.swiftMode ? 0.8 : 0) + distancePx * SPEED_ACCEL);
 
@@ -1746,12 +1775,20 @@ function updatePhysics() {
     updateHUD();
 }
 
-function patchUnderKart() {
+function patchUnderKart() { return patchAt(kart.worldX, kart.w); }
+
+// The road patch under a vehicle at worldX with width w (player or rival)
+function patchAt(worldX, w) {
     for (var i = 0; i < obstacles.length; i++) {
         var o = obstacles[i];
-        if (o.type === 'patch' && kart.worldX + kart.w - 6 > o.worldX && kart.worldX + 6 < o.worldX + o.w) return o;
+        if (o.type === 'patch' && worldX + w - 6 > o.worldX && worldX + 6 < o.worldX + o.w) return o;
     }
     return null;
+}
+
+// Speed multiplier for driving on a patch kind (oil spins you out but doesn't slow you)
+function surfaceMul(kind) {
+    return kind === 'sand' ? 0.6 : kind === 'ice' ? 1.35 : 1;
 }
 
 function landKart() {
@@ -3073,6 +3110,7 @@ function resumeGame() {
 }
 
 function quitToTitle() {
+    if (gameState === 'PAUSED') recordRun();   // bank the run's corn like a wipeout would (end screens already did)
     stopMusic();
     gameState = 'TITLE';
     document.getElementById('hud').style.display = 'none';
@@ -3249,7 +3287,27 @@ document.getElementById('pauseBtn').addEventListener('touchstart', function(e) {
 }, { passive: false });
 
 // ==================== GAME LOOP ====================
-function loop() {
+const STEP_MS   = 1000 / 60;  // the game is tuned for one step per 60 Hz frame
+const MAX_STEPS = 4;          // catch-up limit after a stall (e.g. a background tab)
+var lastFrameTime = 0, stepAccum = 0;
+
+// Fixed timestep: run step() at 60 Hz whatever the display refresh rate, so 120/144 Hz screens don't speed the game up
+function loop(now) {
+    requestAnimationFrame(loop);
+    stepAccum += lastFrameTime ? now - lastFrameTime : STEP_MS;
+    lastFrameTime = now;
+    var steps = 0;
+    // 1 ms of slack absorbs vsync jitter on 60 Hz screens so frames aren't skipped and then doubled
+    while (stepAccum >= STEP_MS - 1 && steps < MAX_STEPS) {
+        step();
+        stepAccum -= STEP_MS;
+        steps++;
+    }
+    if (stepAccum >= STEP_MS) stepAccum = 0;   // too far behind: drop the backlog instead of fast-forwarding
+}
+
+// One frame of update + draw
+function step() {
     frameCount++;
     uiButtons = [];
     ctx.save();
@@ -3336,7 +3394,6 @@ function loop() {
     }
 
     ctx.restore();
-    requestAnimationFrame(loop);
 }
 
 // ==================== FIT TO SCREEN ====================
@@ -4069,7 +4126,7 @@ function drawCollectibles() {
 
 // ==================== BOOTSTRAP ====================
 fitToScreen();
-loop();
+requestAnimationFrame(loop);
 </script>
 <style>
     #backLink {

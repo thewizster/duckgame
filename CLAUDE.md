@@ -177,14 +177,14 @@ Run state (reset in `startRun()`): `fish`, `kills`, `distancePx`, `currentBiomeI
 | STARTING ABILITY POOL | `ABILITY_POOL` karts (`unlock`, `paint` [body, highlight, shadow], `apply`) |
 | GARAGE / META-PROGRESSION | `GARAGE_DEFS` perks bought with `meta.cornBank`; `meta.garage`, `meta.gpUnlocked` |
 | BOSS SYSTEM / BOSS DRAWING | `BOSS_DEFS`, `bossTriggerPx()`, `spawnBoss()`, `updateBoss()` state machine, `hitBoss()`, `defeatBoss()`, `drawBoss*()` |
-| RIVALS | `RIVAL_DEFS` (`skill` scales pace relative to the player; `rivalSpeed()` rubber-bands), `updateRivals()`, `knockOutRival()`, `racePosition()`, countdown |
+| RIVALS | `RIVAL_DEFS` (`skill` scales pace relative to an un-upgraded kart, +`RIVAL_PACE_GP` per GP level; `rivalSpeed()` rubber-bands only beyond `RIVAL_BAND_PX`), `updateRivals()` (rivals use `patchAt()`/`surfaceMul()` like the kart), `knockOutRival()`, `racePosition()`, countdown |
 | PHYSICS | `updatePhysics()`: countdown gate, hazards (`patchUnderKart()`), speed/boost, gravity, floor, flips, `landKart()` |
 | UPGRADE SELECTION | `upgradePool()`, `triggerUpgrade()`, `applyUpgrade()`, pit-stop `rerollUpgrades()` / `repairKart()` |
 | OBSTACLE GENERATION / COLLISION / DRAWING | `ramp` (ridden: `kart.onRamp`), `barrier` (`drum` = boss drop, `smashed` by boost), `pothole`, `patch` (`kind`: sand / oil / ice / lowg / fire) |
 | DRAW: KART SPRITE | `drawKart(k, x, y, groundY)` draws the player, rivals and previews from any object with `state, animFrame, invincible, shield, paint, boostTimer, rot, driver` |
 | DRAW: screens | Title, kart pick (+ GP selector), pit stop (+ shop), garage, wipeout/victory (`drawRunStats()`), pause, achievements |
 | UI BUTTONS / CARD LAYOUT | `drawButton(label, x, y, w, h, action, disabled)`; `cardLayout()` + `mouseIn()` share card rects for drawing, hover and clicks |
-| INPUT / GAME LOOP / FIT TO SCREEN | Keyboard, clicks hit-test `uiButtons`, touch JUMP/FLIP/BOOST/pause; `loop()` per state |
+| INPUT / GAME LOOP / FIT TO SCREEN | Keyboard, clicks hit-test `uiButtons`, touch JUMP/FLIP/BOOST/pause; `loop(now)` is a fixed 60 Hz accumulator that calls `step()` (one frame of update + draw, per state) |
 | ENEMY SPAWNING / UPDATE / DRAWING, COLLECTIBLES | 15 enemy types (3 per biome), corn/breadcrumb/fuel/heart pickups (`addCorn()` applies Corn Scoop and GP bonuses) |
 
 ### State machine
@@ -201,7 +201,7 @@ TITLE ─any key─▶ ABILITY_PICK ─1/2/3─▶ PLAYING ⇄ UPGRADE (pit stop
 - **Bosses** live in screen space (`boss.x`, `bossShots`). Attacks: `roll`, `lob` (lands as a `fire` patch obstacle), `drop` (a `drum` barrier), `brake` (warning, then slides under the kart and becomes `dazed`). Hit them by landing on them from above during `brake`/`dazed`, or by boosting into them.
 - **Rivals** are in world space and can be knocked out by a boost or a stomp. A rival close behind may boost-ram you (`hurtKart(15)`).
 - **Grand Prix**: `gpLevel` (picked on the kart screen, up to `meta.gpUnlocked`) scales enemies (`gpMul()`), obstacle spacing, boss HP/cooldown, rival skill and corn.
-- **Tests**: `startRun()` begins with a 180-frame `countdown`; set `countdown = 0` before driving the kart from Playwright. Teleporting with `kart.worldX = 200 + X` works while `bossPx` is 0. Set `bossDone = [true,true,true,true,true]` to skip bosses.
+- **Tests**: `startRun()` begins with a 180-frame `countdown`; set `countdown = 0` before driving the kart from Playwright. To fast-forward, stub `requestAnimationFrame` in an init script and call `step()` in a loop (a full race is ~12,000 steps). Note `startRun()` resets `bossDone`, so set it afterwards. Teleporting with `kart.worldX = 200 + X` works while `bossPx` is 0. Set `bossDone = [true,true,true,true,true]` to skip bosses.
 
 ## Git Conventions
 
