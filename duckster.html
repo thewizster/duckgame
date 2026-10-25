@@ -3110,6 +3110,7 @@ function resumeGame() {
 }
 
 function quitToTitle() {
+    if (gameState === 'PAUSED') recordRun();   // bank the run's corn like a wipeout would (end screens already did)
     stopMusic();
     gameState = 'TITLE';
     document.getElementById('hud').style.display = 'none';

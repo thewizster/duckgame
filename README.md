@@ -205,7 +205,7 @@ A side-scrolling kart-racing roguelite. The duck ditches the water, straps into 
 - **Boost** makes you a battering ram: while it lasts, you smash through enemies, barriers and rivals without taking damage.
 - **Ramps** are ridden up and launch you off the lip. **Hold ↓** in the air to backflip. A clean landing pays corn, and a double flip also refills a boost. Landing **mid-flip** costs 20 HP.
 - Every biome after the first has a **road hazard**: sand drifts slow you, oil slicks spin you out (no jumping), black ice speeds you up but weakens jumps, and zero-G strips let you float.
-- **Corn** is spent at pit stops (rerolls, repairs) and banked at the end of every run for the **Garage**. **Hearts** restore HP, **fuel cans** add a boost.
+- **Corn** is spent at pit stops (rerolls, repairs) and banked at the end of every run (even one you quit) for the **Garage**. **Hearts** restore HP, **fuel cans** add a boost.
 - HP slowly regenerates while you're on the ground.
 
 ### Rivals
