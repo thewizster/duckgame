@@ -351,6 +351,7 @@ const BOOST_SPEED      = 5.0;     // extra px/frame while boost active
 const BASE_SPEED       = 3.0;
 const MAX_SPEED        = 7.0;
 const SPEED_ACCEL      = 0.00030;
+const TURBO_BONUS      = 0.4;     // Turbo Engine top-speed bonus (rivals don't get it, so keep it modest)
 const HIT_DAMAGE       = 25;
 const HIT_INV_FRAMES   = 80;
 const ROAD_Y           = 380;     // top of the road surface
@@ -457,7 +458,7 @@ const BIOMES = [
 const UPGRADE_DEFS = [
     { id:'double_jump',    name:'Suspension Springs', short:'SPRING', desc:'Jump once more while airborne',              color:'#3498db' },
     { id:'roll_cage',      name:'Roll Cage',          short:'CAGE',   desc:'Absorb one hit; recharges 400m after breaking', color:'#1abc9c' },
-    { id:'turbo_engine',   name:'Turbo Engine',       short:'TURBO',  desc:'+0.6 max speed permanently',                color:'#e67e22' },
+    { id:'turbo_engine',   name:'Turbo Engine',       short:'TURBO',  desc:'+0.4 max speed permanently',                color:'#e67e22' },
     { id:'off_road_tires', name:'Off-Road Tires',     short:'TIRES',  desc:'Ramp launches go 30% higher',              color:'#27ae60' },
     { id:'extra_boost',    name:'Nitro Tank',         short:'NITRO',  desc:'+1 boost charge',                           color:'#f1c40f', stack:true },
     { id:'magnet',         name:'Magnet Bumper',      short:'MAGNET', desc:'Auto-collect items within 130px',           color:'#9b59b6' },
@@ -1313,16 +1314,20 @@ function drawBossUI() {
 }
 
 // ==================== RIVALS ====================
-// skill scales a rival's pace relative to an un-upgraded kart; the top two edge ahead of it
+// skill scales a rival's pace relative to an un-upgraded kart; at GP1 the best only match it
 const RIVAL_DEFS = [
-    { name:'Mallard Max',   paint:['#2e7d32','#4caf50','#1b4d1e'], driver:'#8a6a4a', skill:1.01 },
-    { name:'Goose Gloria',  paint:['#d8d8d8','#ffffff','#888888'], driver:'#eeeeee', skill:0.96 },
-    { name:'Swan Svetlana', paint:['#ff77aa','#ffaacc','#aa3366'], driver:'#ffffff', skill:0.98 },
-    { name:'Teal Terry',    paint:['#00897b','#26c6da','#004d40'], driver:'#c89820', skill:0.93 },
-    { name:'Loon Lars',     paint:['#2a2a2a','#4a4a4a','#000000'], driver:'#666666', skill:0.91 },
-    { name:'Pelican Pete',  paint:['#ff9800','#ffb74d','#a65c00'], driver:'#f0e0c0', skill:0.95 },
-    { name:'Coot Carla',    paint:['#5c6bc0','#7986cb','#283593'], driver:'#333344', skill:1.03 }
+    { name:'Mallard Max',   paint:['#2e7d32','#4caf50','#1b4d1e'], driver:'#8a6a4a', skill:0.99 },
+    { name:'Goose Gloria',  paint:['#d8d8d8','#ffffff','#888888'], driver:'#eeeeee', skill:0.95 },
+    { name:'Swan Svetlana', paint:['#ff77aa','#ffaacc','#aa3366'], driver:'#ffffff', skill:0.97 },
+    { name:'Teal Terry',    paint:['#00897b','#26c6da','#004d40'], driver:'#c89820', skill:0.92 },
+    { name:'Loon Lars',     paint:['#2a2a2a','#4a4a4a','#000000'], driver:'#666666', skill:0.90 },
+    { name:'Pelican Pete',  paint:['#ff9800','#ffb74d','#a65c00'], driver:'#f0e0c0', skill:0.94 },
+    { name:'Coot Carla',    paint:['#5c6bc0','#7986cb','#283593'], driver:'#333344', skill:1.00 }
 ];
+const RIVAL_PACE_GP = 0.008;   // skill added per Grand Prix level above 1
+const RIVAL_BAND_PX = 1500;    // rubber-banding only starts beyond this gap (150m)
+const RIVAL_EASE    = 0.15;    // max slowdown for a leader far ahead
+const RIVAL_PUSH    = 0.10;    // max speed-up for a straggler far behind
 
 function spawnRivals() {
     var defs = shuffleArray(RIVAL_DEFS.slice());
@@ -1339,15 +1344,17 @@ function racePosition() {
     return ahead + 1;
 }
 
-// Rivals pace off the player's un-upgraded speed and rubber-band: leaders ease off and stragglers
-// push harder, so the top rivals hover just ahead and a few clean boosts can take the lead.
+// Rivals pace off the player's un-upgraded speed. Within RIVAL_BAND_PX they race at their own
+// skill, so a lead won with boosts sticks; beyond it, leaders ease off so they stay catchable and
+// stragglers push to keep the pack close, but never faster than the player's base pace.
 function rivalSpeed(r) {
-    var skill = r.def.skill + (gpLevel - 1) * 0.02;
-    var pace  = Math.min(MAX_SPEED, BASE_SPEED + distancePx * SPEED_ACCEL) * skill;
-    var gap   = r.worldX - kart.worldX;
-    if (gap > 0) pace *= 1 - 0.18 * Math.min(1, gap / 1800);
-    else         pace *= 1 + 0.10 * Math.min(1, -gap / 1800);
-    return pace;
+    var base = Math.min(MAX_SPEED, BASE_SPEED + distancePx * SPEED_ACCEL);
+    var pace = base * (r.def.skill + (gpLevel - 1) * RIVAL_PACE_GP);
+    var gap  = r.worldX - kart.worldX;
+    var over = Math.min(1, (Math.abs(gap) - RIVAL_BAND_PX) / RIVAL_BAND_PX);
+    if (over <= 0) return pace;
+    if (gap > 0) return pace * (1 - RIVAL_EASE * over);
+    return Math.max(pace, Math.min(base, pace * (1 + RIVAL_PUSH * over)));
 }
 
 function knockOutRival(r) {
@@ -1374,6 +1381,12 @@ function updateRivals() {
         if (boss) { r.worldX += kartAdvance; continue; }   // the pack holds station during a boss duel
 
         var spd = rivalSpeed(r);
+        // Road hazards slow (or speed) rivals just like the player
+        var rp = r.state === 'ground' ? patchAt(r.worldX, r.w) : null;
+        if (rp && rp.kind !== 'lowg') {
+            spd *= surfaceMul(rp.kind);
+            if (rp.kind === 'sand' && frameCount % 3 === 0) spawnDust(r.worldX - cameraX + 8, ROAD_Y - 2);
+        }
         if (r.boostTimer > 0) { spd += BOOST_SPEED * 0.8; r.boostTimer--; }
         r.worldX += spd;
         r.animFrame = Math.floor((frameCount + i * 3) / 8) % 4;
@@ -1633,13 +1646,13 @@ function updatePhysics() {
     if (kart.spin > 0) kart.spin--;
     if (patch && patch.kind === 'fire' && kart.y + kart.h > ROAD_Y - 18)
         hurtKart(20, KART_SCREEN_X + kart.w / 2, ROAD_Y - 6);
-    var surfMul = kart.surface === 'sand' ? 0.6 : kart.surface === 'ice' ? 1.35 : 1;
+    var surfMul = surfaceMul(kart.surface);
     if (kart.surface === 'sand' && frameCount % 3 === 0) spawnDust(KART_SCREEN_X + 8, ROAD_Y - 2);
     if (kart.surface === 'ice' && frameCount % 4 === 0)
         spawnParticle(KART_SCREEN_X + 10, ROAD_Y - 2, -2, -1, 14, '#e8f8ff', 2);
 
     // Speed ramp-up over distance
-    var maxSpd = MAX_SPEED + (activeUpgrades.indexOf('turbo_engine') !== -1 ? 0.6 : 0);
+    var maxSpd = MAX_SPEED + (activeUpgrades.indexOf('turbo_engine') !== -1 ? TURBO_BONUS : 0);
     kart.speed = Math.min(maxSpd,
         BASE_SPEED + (kart.swiftMode ? 0.8 : 0) + distancePx * SPEED_ACCEL);
 
@@ -1751,12 +1764,20 @@ function updatePhysics() {
     updateHUD();
 }
 
-function patchUnderKart() {
+function patchUnderKart() { return patchAt(kart.worldX, kart.w); }
+
+// The road patch under a vehicle at worldX with width w (player or rival)
+function patchAt(worldX, w) {
     for (var i = 0; i < obstacles.length; i++) {
         var o = obstacles[i];
-        if (o.type === 'patch' && kart.worldX + kart.w - 6 > o.worldX && kart.worldX + 6 < o.worldX + o.w) return o;
+        if (o.type === 'patch' && worldX + w - 6 > o.worldX && worldX + 6 < o.worldX + o.w) return o;
     }
     return null;
+}
+
+// Speed multiplier for driving on a patch kind (oil spins you out but doesn't slow you)
+function surfaceMul(kind) {
+    return kind === 'sand' ? 0.6 : kind === 'ice' ? 1.35 : 1;
 }
 
 function landKart() {

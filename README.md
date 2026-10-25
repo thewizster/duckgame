@@ -210,7 +210,7 @@ A side-scrolling kart-racing roguelite. The duck ditches the water, straps into 
 
 ### Rivals
 
-Seven rival ducks start ahead of you on a staggered grid after a 3-2-1 countdown. The HUD shows your position, and an arrow points to the next rival ahead. The two fastest rivals outpace an un-upgraded kart, so first place takes upgrades, boosts, or knocking rivals out by ramming or stomping them (+10 corn each). Watch out: a rival right behind you will try to boost-ram past.
+Seven rival ducks start ahead of you on a staggered grid after a 3-2-1 countdown. The HUD shows your position, and an arrow points to the next rival ahead. In Grand Prix 1 the best rivals only match an un-upgraded kart, so boosting past them wins; each Grand Prix level makes them faster, and from GP5 on, first place takes upgrades, well-timed boosts, or knocking rivals out by ramming or stomping them (+10 corn each). A lead you build sticks: rivals only ease off when they get far ahead, and road hazards slow them just like you. Watch out: a rival right behind you will try to boost-ram past.
 
 ### Zone bosses
 
@@ -234,7 +234,7 @@ Every **550m** a **Pit Stop** offers three random upgrades (owned ones aren't of
 |---|---|
 | Suspension Springs | Double jump |
 | Roll Cage | Absorb one hit; recharges 400m after breaking |
-| Turbo Engine | +0.6 max speed |
+| Turbo Engine | +0.4 max speed |
 | Off-Road Tires | Ramp launches go 30% higher |
 | Nitro Tank | +1 boost charge (stacks) |
 | Magnet Bumper | Auto-collect items within 130px |
