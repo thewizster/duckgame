@@ -361,10 +361,12 @@
         }
 
         /* ---------- Ticker + credits ---------- */
+        /* Full-bleed strip under the tagline (main is centred, so 100vw spans the window) */
         .ticker {
             position: relative;
             z-index: 1;
-            margin-top: 34px;
+            width: 100vw;
+            margin-top: 22px;
             overflow: hidden;
             white-space: nowrap;
             border-top: 2px solid var(--magenta);
@@ -444,6 +446,12 @@
         <p class="tagline">TWO GAMES &middot; ONE DUCK &middot; ZERO QUARTERS</p>
     </header>
 
+    <div class="ticker" aria-hidden="true">
+        <div class="ticker-track">
+            <span><b>&#9733;</b> DUCK RUN: ENDLESS &mdash; 5 BIOMES &middot; 5 BOSSES &middot; ENDLESS LAPS &middot; 7 DUCKS TO UNLOCK <b>&#9733;</b> DUCKSTER: ROAD RAGE &mdash; 7 RIVALS &middot; 5 ZONE BOSSES &middot; BACKFLIPS &middot; 9 KARTS &middot; GRAND PRIX 1&ndash;9 <b>&#9733;</b> 100% OFFLINE &middot; NO INSTALLS &middot; NO QUARTERS REQUIRED</span><span><b>&#9733;</b> DUCK RUN: ENDLESS &mdash; 5 BIOMES &middot; 5 BOSSES &middot; ENDLESS LAPS &middot; 7 DUCKS TO UNLOCK <b>&#9733;</b> DUCKSTER: ROAD RAGE &mdash; 7 RIVALS &middot; 5 ZONE BOSSES &middot; BACKFLIPS &middot; 9 KARTS &middot; GRAND PRIX 1&ndash;9 <b>&#9733;</b> 100% OFFLINE &middot; NO INSTALLS &middot; NO QUARTERS REQUIRED</span>
+        </div>
+    </div>
+
     <p class="select-prompt blink">&#9660; SELECT YOUR GAME &#9660;</p>
 
     <div class="arcade">
@@ -497,12 +505,6 @@
         <span class="touch">TAP A CABINET TO PLAY</span>
     </p>
 </main>
-
-<div class="ticker" aria-hidden="true">
-    <div class="ticker-track">
-        <span><b>&#9733;</b> DUCK RUN: ENDLESS &mdash; 5 BIOMES &middot; 5 BOSSES &middot; ENDLESS LAPS &middot; 7 DUCKS TO UNLOCK <b>&#9733;</b> DUCKSTER: ROAD RAGE &mdash; 7 RIVALS &middot; 5 ZONE BOSSES &middot; BACKFLIPS &middot; 9 KARTS &middot; GRAND PRIX 1&ndash;9 <b>&#9733;</b> 100% OFFLINE &middot; NO INSTALLS &middot; NO QUARTERS REQUIRED</span><span><b>&#9733;</b> DUCK RUN: ENDLESS &mdash; 5 BIOMES &middot; 5 BOSSES &middot; ENDLESS LAPS &middot; 7 DUCKS TO UNLOCK <b>&#9733;</b> DUCKSTER: ROAD RAGE &mdash; 7 RIVALS &middot; 5 ZONE BOSSES &middot; BACKFLIPS &middot; 9 KARTS &middot; GRAND PRIX 1&ndash;9 <b>&#9733;</b> 100% OFFLINE &middot; NO INSTALLS &middot; NO QUARTERS REQUIRED</span>
-    </div>
-</div>
 
 <footer>
     <p class="copy">&copy; 2026 THEWIZSTER &middot; ALL DUCKS RESERVED</p>
