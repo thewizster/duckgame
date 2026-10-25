@@ -620,14 +620,19 @@ const META_KEY = 'duckster_meta';
 function loadMeta() {
     var m = null;
     try { m = JSON.parse(localStorage.getItem(META_KEY)); } catch(e) {}
-    m = m || {};
-    if (!m.achievements)                     m.achievements = [];
+    // A corrupt save must never stop the game from booting, so reject anything that isn't a plain object
+    if (!m || typeof m !== 'object' || Array.isArray(m)) m = {};
+    if (!Array.isArray(m.achievements))      m.achievements = [];
     if (typeof m.bestDistance !== 'number')  m.bestDistance = 0;
     if (typeof m.totalRuns    !== 'number')  m.totalRuns    = 0;
     if (typeof m.cornBank     !== 'number')  m.cornBank     = 0;
     if (typeof m.gpUnlocked   !== 'number')  m.gpUnlocked   = 1;
-    if (!m.garage)                           m.garage       = {};
-    GARAGE_DEFS.forEach(function(g) { if (typeof m.garage[g.id] !== 'number') m.garage[g.id] = 0; });
+    m.gpUnlocked = Math.max(1, Math.min(MAX_GP, Math.floor(m.gpUnlocked)));
+    if (!m.garage || typeof m.garage !== 'object' || Array.isArray(m.garage)) m.garage = {};
+    GARAGE_DEFS.forEach(function(g) {
+        var lvl = typeof m.garage[g.id] === 'number' ? Math.floor(m.garage[g.id]) : 0;
+        m.garage[g.id] = Math.max(0, Math.min(g.costs.length, lvl));
+    });
     return m;
 }
 
