@@ -4,156 +4,781 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Duck Games</title>
+    <meta name="description" content="Two free browser arcade games starring the same pixel duck: Duck Run: Endless and Duckster: Road Rage.">
     <style>
+        :root {
+            --bg:      #07001a;
+            --ink:     #f4ecff;
+            --dim:     #a593cf;
+            --magenta: #ff2bd6;
+            --cyan:    #2de2ff;
+            --yellow:  #ffe14d;
+            --red:     #ff3b5c;
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
+        html, body { min-height: 100%; }
+
         body {
-            background: #0d0d1a;
-            min-height: 100vh;
+            background: var(--bg);
+            color: var(--ink);
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            overflow-x: hidden;
+        }
+
+        .sr-only {
+            position: absolute; width: 1px; height: 1px; overflow: hidden;
+            clip: rect(0 0 0 0); white-space: nowrap;
+        }
+
+        canvas.pixel { image-rendering: pixelated; display: block; }
+
+        /* ---------- Synthwave backdrop + CRT glass ---------- */
+        #sky {
+            position: fixed; inset: 0;
+            width: 100%; height: 100%;
+            z-index: 0;
+        }
+
+        .crt {
+            position: fixed; inset: 0;
+            pointer-events: none;
+            z-index: 50;
+            background:
+                repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.22) 0 1px, transparent 1px 3px),
+                radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+            animation: flicker 6s infinite steps(1);
+        }
+
+        @keyframes flicker {
+            0%, 100% { opacity: 1; }
+            47%      { opacity: 0.92; }
+            48%      { opacity: 1; }
+            83%      { opacity: 0.95; }
+        }
+
+        main {
+            position: relative;
+            z-index: 1;
+            max-width: 1240px;
+            margin: 0 auto;
+            padding: 14px 16px 0;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            font-family: 'Courier New', Courier, monospace;
-            color: #ffffff;
-            padding: 24px;
         }
 
-        h1 {
-            font-size: 36px;
-            letter-spacing: 6px;
-            text-transform: uppercase;
-            color: #ffffff;
-            margin-bottom: 6px;
-            text-shadow: 0 0 24px rgba(120, 160, 255, 0.6);
-        }
-
-        .subtitle {
+        /* ---------- Arcade score bar ---------- */
+        .scorebar {
+            width: 100%;
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            align-items: start;
+            gap: 12px;
             font-size: 13px;
-            color: #555577;
             letter-spacing: 3px;
-            margin-bottom: 52px;
+            text-transform: uppercase;
         }
 
-        .games {
+        .scorebar .slot { display: flex; flex-direction: column; gap: 6px; }
+        .scorebar .slot.left   { align-items: flex-start; }
+        .scorebar .slot.center { align-items: center; }
+        .scorebar .slot.right  { align-items: flex-end; }
+        .scorebar .label       { color: var(--red); text-shadow: 0 0 8px rgba(255, 59, 92, 0.7); }
+
+        /* ---------- Title ---------- */
+        .title {
+            margin: 26px 0 8px;
             display: flex;
-            gap: 32px;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+
+        #logo {
+            filter: drop-shadow(0 0 14px rgba(255, 43, 214, 0.75)) drop-shadow(0 0 40px rgba(123, 44, 255, 0.6));
+        }
+
+        .tagline {
+            margin-top: 18px;
+            font-size: clamp(11px, 2.2vw, 16px);
+            letter-spacing: clamp(2px, 0.8vw, 6px);
+            color: var(--cyan);
+            text-shadow: 0 0 10px rgba(45, 226, 255, 0.8);
+        }
+
+        .blink { animation: blink 1.1s infinite steps(1); }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        .select-prompt {
+            margin: 22px 0 26px;
+            font-size: clamp(14px, 2.6vw, 20px);
+            letter-spacing: 6px;
+            color: var(--yellow);
+            text-shadow: 0 0 12px rgba(255, 225, 77, 0.85);
+        }
+
+        /* ---------- Cabinets ---------- */
+        .arcade {
+            width: 100%;
+            display: flex;
             flex-wrap: wrap;
             justify-content: center;
+            gap: 36px;
         }
 
-        .card {
-            display: block;
-            text-decoration: none;
-            width: 300px;
-            border: 2px solid #333355;
-            background: #12121f;
-            padding: 28px 24px 24px;
-            transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+        .cabinet {
+            --c1: var(--cyan);
+            --c2: #3d6bff;
+            --glow: rgba(45, 226, 255, 0.45);
+            position: relative;
+            flex: 1 1 500px;
+            max-width: 580px;
+            padding: 14px 14px 18px;
+            border: 3px solid var(--c1);
+            border-radius: 22px 22px 10px 10px;
+            background:
+                linear-gradient(90deg, rgba(255, 255, 255, 0.05), transparent 12%, transparent 88%, rgba(255, 255, 255, 0.05)),
+                linear-gradient(180deg, #1c0b40, #0b0320 70%, #07001a);
+            box-shadow: 0 0 0 3px #000, 0 0 26px var(--glow), 0 0 90px var(--glow);
+            transition: transform 0.25s ease, box-shadow 0.25s ease;
+        }
+
+        .cabinet.duckster {
+            --c1: #ff8a1f;
+            --c2: var(--magenta);
+            --glow: rgba(255, 110, 60, 0.45);
+        }
+
+        .cabinet.selected {
+            transform: translateY(-8px);
+            box-shadow: 0 0 0 3px #000, 0 0 36px var(--c1), 0 0 120px var(--glow);
+        }
+
+        .cabinet:focus-within { outline: 3px dashed var(--yellow); outline-offset: 8px; }
+
+        /* The whole cabinet is one link (iframes can't live inside an <a>) */
+        .cab-link {
+            position: absolute; inset: 0;
+            z-index: 5;
+            border-radius: inherit;
             cursor: pointer;
         }
+        .cab-link:focus { outline: none; }
 
-        .card:hover {
-            transform: translateY(-4px);
+        .marquee {
+            position: relative;
+            padding: 12px 12px 10px;
+            border-radius: 12px;
+            background: linear-gradient(100deg, var(--c2), var(--c1));
+            box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.55), 0 0 22px var(--glow);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            overflow: hidden;
         }
 
-        .card.blue:hover  { border-color: #5577ff; box-shadow: 0 0 32px rgba(80, 120, 255, 0.35); }
-        .card.orange:hover { border-color: #ff8822; box-shadow: 0 0 32px rgba(255, 140, 40, 0.35); }
+        /* Light sweep across the backlit marquee */
+        .marquee::after {
+            content: '';
+            position: absolute; top: 0; bottom: 0; left: -40%;
+            width: 30%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+            transform: skewX(-20deg);
+            animation: sweep 5s infinite;
+        }
+        .duckster .marquee::after { animation-delay: 2.5s; }
+        @keyframes sweep { 0%, 70% { left: -40%; } 100% { left: 130%; } }
 
-        .card-icon {
-            font-size: 48px;
-            margin-bottom: 14px;
+        .marquee .genre {
+            font-size: 11px;
+            letter-spacing: 4px;
+            color: #12002e;
+            background: rgba(255, 255, 255, 0.75);
+            padding: 2px 10px;
+            border-radius: 3px;
         }
 
-        .card-title {
-            font-size: 18px;
+        .bezel {
+            margin-top: 14px;
+            padding: 14px;
+            border-radius: 16px;
+            background: linear-gradient(180deg, #111, #050208);
+            box-shadow: inset 0 0 0 3px #26173f, inset 0 6px 24px #000;
+        }
+
+        .screen {
+            position: relative;
+            aspect-ratio: 806 / 506;
+            border-radius: 18px / 14px;
+            overflow: hidden;
+            background: #000;
+            box-shadow: 0 0 28px var(--glow);
+        }
+
+        .screen iframe {
+            position: absolute; inset: 0;
+            width: 100%; height: 100%;
+            border: 0;
+            pointer-events: none;
+            filter: saturate(1.15) contrast(1.05);
+        }
+
+        /* Scanlines, tube curvature and glass glare over the live demo */
+        .screen::after {
+            content: '';
+            position: absolute; inset: 0;
+            pointer-events: none;
+            background:
+                linear-gradient(160deg, rgba(255, 255, 255, 0.12), transparent 38%),
+                repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.28) 0 1px, transparent 1px 3px),
+                radial-gradient(ellipse at center, transparent 62%, rgba(0, 0, 0, 0.7) 100%);
+            box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.8);
+        }
+
+        .demo-tag {
+            position: absolute; right: 12px; bottom: 10px;
+            z-index: 2;
+            font-size: 12px;
             letter-spacing: 3px;
-            text-transform: uppercase;
-            margin-bottom: 10px;
-        }
-
-        .card.blue  .card-title { color: #7799ff; }
-        .card.orange .card-title { color: #ff9944; }
-
-        .card-tag {
-            display: inline-block;
-            font-size: 10px;
-            letter-spacing: 2px;
-            text-transform: uppercase;
+            color: var(--yellow);
+            background: rgba(0, 0, 0, 0.55);
             padding: 2px 8px;
-            border-radius: 2px;
-            margin-bottom: 14px;
+            text-shadow: 0 0 8px rgba(255, 225, 77, 0.9);
         }
 
-        .card.blue  .card-tag { background: #1a2255; color: #7799ff; }
-        .card.orange .card-tag { background: #2a1800; color: #ff9944; }
+        .start-flash {
+            position: absolute; inset: 0;
+            z-index: 3;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: clamp(18px, 3.6vw, 30px);
+            letter-spacing: 6px;
+            color: #12002e;
+            background: rgba(255, 255, 255, 0.88);
+            animation: flash 0.12s infinite steps(1);
+        }
+        .cabinet.starting .start-flash { display: flex; }
+        @keyframes flash { 50% { background: var(--c1); } }
 
-        .card-desc {
-            font-size: 12px;
-            line-height: 1.7;
-            color: #888899;
+        .panel {
+            margin-top: 16px;
+            display: flex;
+            align-items: center;
+            gap: 18px;
         }
 
-        .card-play {
-            display: block;
-            margin-top: 20px;
-            font-size: 12px;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-            opacity: 0.45;
+        .controls {
+            position: relative;
+            flex: 0 0 96px;
+            height: 64px;
+            border-radius: 10px;
+            background: linear-gradient(180deg, #2a1650, #160a30);
+            box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.1), 0 4px 0 #05010f;
+        }
+        .stick {
+            position: absolute; left: 12px; top: 6px;
+            width: 22px; height: 22px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 35% 30%, #fff 0 12%, var(--red) 40%, #7a0a22);
+            transform-origin: 50% 160%;
+            animation: wiggle 2.4s infinite ease-in-out;
+        }
+        .stick::after {
+            content: '';
+            position: absolute; left: 9px; top: 20px;
+            width: 4px; height: 18px;
+            background: #bbb;
+        }
+        .selected .stick { animation-duration: 0.6s; }
+        @keyframes wiggle { 0%, 100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }
+
+        .btn {
+            position: absolute; top: 22px;
+            width: 20px; height: 20px;
+            border-radius: 50%;
+            box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.35), 0 0 10px currentColor;
+        }
+        .btn.a { left: 48px; background: var(--c1); color: var(--c1); }
+        .btn.b { left: 70px; background: var(--c2); color: var(--c2); top: 14px; }
+
+        .blurb {
+            flex: 1;
+            font-size: 13px;
+            font-weight: normal;
+            line-height: 1.55;
+            color: var(--dim);
+        }
+        .blurb strong { color: var(--ink); }
+
+        .press {
+            flex: 0 0 auto;
+            padding: 10px 14px;
+            border: 2px solid var(--c1);
+            border-radius: 6px;
+            font-size: 13px;
+            letter-spacing: 3px;
+            color: var(--c1);
+            text-shadow: 0 0 8px var(--c1);
+            box-shadow: 0 0 14px var(--glow), inset 0 0 10px var(--glow);
+        }
+        .selected .press { background: var(--c1); color: #12002e; text-shadow: none; }
+
+        .p1-cursor {
+            position: absolute; top: -30px; left: 50%;
+            transform: translateX(-50%);
+            font-size: 14px;
+            letter-spacing: 3px;
+            color: var(--yellow);
+            text-shadow: 0 0 10px rgba(255, 225, 77, 0.9);
+            opacity: 0;
             transition: opacity 0.2s;
         }
+        .selected .p1-cursor { opacity: 1; }
 
-        .card:hover .card-play { opacity: 1; }
-        .card.blue  .card-play { color: #7799ff; }
-        .card.orange .card-play { color: #ff9944; }
+        .hint {
+            margin-top: 30px;
+            font-size: 12px;
+            letter-spacing: 4px;
+            color: var(--dim);
+            text-align: center;
+        }
+        .hint kbd {
+            font-family: inherit;
+            color: var(--ink);
+            border: 1px solid var(--dim);
+            border-radius: 3px;
+            padding: 0 5px;
+        }
+        .hint .touch { display: none; }
+        @media (pointer: coarse) {
+            .hint .keys  { display: none; }
+            .hint .touch { display: inline; }
+        }
+
+        /* ---------- Ticker + credits ---------- */
+        .ticker {
+            position: relative;
+            z-index: 1;
+            margin-top: 34px;
+            overflow: hidden;
+            white-space: nowrap;
+            border-top: 2px solid var(--magenta);
+            border-bottom: 2px solid var(--magenta);
+            background: rgba(10, 0, 30, 0.75);
+            box-shadow: 0 0 20px rgba(255, 43, 214, 0.4);
+        }
+        .ticker-track {
+            display: inline-block;
+            padding: 9px 0;
+            font-size: 13px;
+            letter-spacing: 4px;
+            color: var(--yellow);
+            animation: scroll 60s linear infinite;
+        }
+        .ticker-track span { padding-right: 60px; }
+        .ticker-track b { color: var(--magenta); }
+        @keyframes scroll { to { transform: translateX(-50%); } }
 
         footer {
-            margin-top: 52px;
-            font-size: 11px;
-            color: #333344;
-            letter-spacing: 2px;
+            position: relative;
+            z-index: 1;
+            padding: 30px 16px 40px;
+            text-align: center;
+            letter-spacing: 4px;
+        }
+        footer .copy { font-size: 12px; color: var(--dim); }
+        .signature {
+            margin-top: 12px;
+            font-size: clamp(15px, 2.6vw, 20px);
+            color: var(--ink);
+            text-shadow: 0 0 10px rgba(255, 43, 214, 0.9), 0 0 26px rgba(255, 43, 214, 0.5);
+        }
+        .signature .star  { color: var(--yellow); text-shadow: 0 0 10px rgba(255, 225, 77, 0.9); }
+        .signature .heart { display: inline-block; animation: beat 1.2s infinite; }
+        @keyframes beat { 0%, 60%, 100% { transform: scale(1); } 30% { transform: scale(1.25); } }
+
+        @media (max-width: 640px) {
+            .scorebar { font-size: 10px; letter-spacing: 2px; }
+            .arcade { gap: 40px; }
+            .p1-cursor { display: none; }
+            .panel { flex-wrap: wrap; }
+            .controls { display: none; }
+            .press { width: 100%; text-align: center; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .crt, .blink, .marquee::after, .stick, .ticker-track, .signature .heart, .start-flash { animation: none; }
+            .cabinet { transition: none; }
         }
     </style>
 </head>
 <body>
 
-    <h1>Duck Games</h1>
-    <p class="subtitle">pick your game</p>
+<canvas id="sky" aria-hidden="true"></canvas>
+<div class="crt" aria-hidden="true"></div>
 
-    <div class="games">
+<main>
+    <div class="scorebar" aria-label="Best distances">
+        <div class="slot left">
+            <span class="label">Duck Run best</span>
+            <canvas class="pixel" id="bestRun" role="img"></canvas>
+        </div>
+        <div class="slot center">
+            <span class="label">Credit</span>
+            <canvas class="pixel" id="credit" role="img"></canvas>
+        </div>
+        <div class="slot right">
+            <span class="label">Duckster best</span>
+            <canvas class="pixel" id="bestKart" role="img"></canvas>
+        </div>
+    </div>
 
-        <a class="card blue" href="duckrunendless.html">
-            <div class="card-icon">🦆</div>
-            <div class="card-title">Duck Run: Endless</div>
-            <span class="card-tag">Roguelite Runner</span>
-            <p class="card-desc">
-                An infinite side-scroller across five dangerous biomes —
-                ocean, swamp, tundra, volcano, and sky. Jump, dive, and
-                burst through sharks, gators, and worse, then take down a
-                giant boss at the end of every biome. Unlock new ducks and
-                see how many laps you can survive.
-            </p>
-            <span class="card-play">Play &rarr;</span>
-        </a>
+    <header class="title">
+        <h1 class="sr-only">Duck Games</h1>
+        <canvas class="pixel" id="logo" aria-hidden="true"></canvas>
+        <p class="tagline">TWO GAMES &middot; ONE DUCK &middot; ZERO QUARTERS</p>
+    </header>
 
-        <a class="card orange" href="duckster.html">
-            <div class="card-icon">🏎️</div>
-            <div class="card-title">Duckster: Road Rage</div>
-            <span class="card-tag">Racing Roguelite</span>
-            <p class="card-desc">
-                The duck straps into a go-kart and races seven rivals
-                through five wild biomes, from country roads to outer
-                space. Ram, stomp and flip your way past a boss at every
-                zone, spend your corn in the garage, then take on harder
-                Grand Prix.
-            </p>
-            <span class="card-play">Play &rarr;</span>
-        </a>
+    <p class="select-prompt blink">&#9660; SELECT YOUR GAME &#9660;</p>
+
+    <div class="arcade">
+
+        <article class="cabinet duckrun" data-href="duckrunendless.html">
+            <a class="cab-link" href="duckrunendless.html"><span class="sr-only">Play Duck Run: Endless</span></a>
+            <span class="p1-cursor blink">&#9660; P1 &#9660;</span>
+            <div class="marquee">
+                <canvas class="pixel" data-pixel="DUCK RUN" aria-hidden="true"></canvas>
+                <span class="genre">ENDLESS ROGUELITE RUNNER</span>
+            </div>
+            <div class="bezel">
+                <div class="screen">
+                    <iframe src="duckrunendless.html?attract" title="Duck Run: Endless demo" tabindex="-1" aria-hidden="true" loading="lazy"></iframe>
+                    <span class="demo-tag blink">DEMO PLAY</span>
+                    <div class="start-flash">PLAYER 1 START</div>
+                </div>
+            </div>
+            <div class="panel">
+                <div class="controls" aria-hidden="true"><span class="stick"></span><span class="btn a"></span><span class="btn b"></span></div>
+                <p class="blurb"><strong>Jump, dive and burst</strong> through ocean, swamp, tundra, volcano and sky. Topple a boss at every biome, unlock new ducks, and survive as many laps as you can.</p>
+                <span class="press">PRESS START</span>
+            </div>
+        </article>
+
+        <article class="cabinet duckster" data-href="duckster.html">
+            <a class="cab-link" href="duckster.html"><span class="sr-only">Play Duckster: Road Rage</span></a>
+            <span class="p1-cursor blink">&#9660; P1 &#9660;</span>
+            <div class="marquee">
+                <canvas class="pixel" data-pixel="DUCKSTER" aria-hidden="true"></canvas>
+                <span class="genre">ROAD RAGE KART RACER</span>
+            </div>
+            <div class="bezel">
+                <div class="screen">
+                    <iframe src="duckster.html?attract" title="Duckster: Road Rage demo" tabindex="-1" aria-hidden="true" loading="lazy"></iframe>
+                    <span class="demo-tag blink">DEMO PLAY</span>
+                    <div class="start-flash">PLAYER 1 START</div>
+                </div>
+            </div>
+            <div class="panel">
+                <div class="controls" aria-hidden="true"><span class="stick"></span><span class="btn a"></span><span class="btn b"></span></div>
+                <p class="blurb"><strong>Ram, stomp and backflip</strong> past seven rivals from country roads to outer space. Beat a boss in every zone, upgrade your garage, and conquer Grand Prix 1&ndash;9.</p>
+                <span class="press">PRESS START</span>
+            </div>
+        </article>
 
     </div>
 
-    <footer>Built with ❤️ in Texas</footer>
+    <p class="hint">
+        <span class="keys"><kbd>&#9664;</kbd> <kbd>&#9654;</kbd> SELECT &nbsp;&middot;&nbsp; <kbd>ENTER</kbd> START &nbsp;&middot;&nbsp; OR CLICK A CABINET</span>
+        <span class="touch">TAP A CABINET TO PLAY</span>
+    </p>
+</main>
 
+<div class="ticker" aria-hidden="true">
+    <div class="ticker-track">
+        <span><b>&#9733;</b> DUCK RUN: ENDLESS &mdash; 5 BIOMES &middot; 5 BOSSES &middot; ENDLESS LAPS &middot; 7 DUCKS TO UNLOCK <b>&#9733;</b> DUCKSTER: ROAD RAGE &mdash; 7 RIVALS &middot; 5 ZONE BOSSES &middot; BACKFLIPS &middot; 9 KARTS &middot; GRAND PRIX 1&ndash;9 <b>&#9733;</b> 100% OFFLINE &middot; NO INSTALLS &middot; NO QUARTERS REQUIRED</span><span><b>&#9733;</b> DUCK RUN: ENDLESS &mdash; 5 BIOMES &middot; 5 BOSSES &middot; ENDLESS LAPS &middot; 7 DUCKS TO UNLOCK <b>&#9733;</b> DUCKSTER: ROAD RAGE &mdash; 7 RIVALS &middot; 5 ZONE BOSSES &middot; BACKFLIPS &middot; 9 KARTS &middot; GRAND PRIX 1&ndash;9 <b>&#9733;</b> 100% OFFLINE &middot; NO INSTALLS &middot; NO QUARTERS REQUIRED</span>
+    </div>
+</div>
+
+<footer>
+    <p class="copy">&copy; 2026 THEWIZSTER &middot; ALL DUCKS RESERVED</p>
+    <p class="signature"><span class="star">&#9733;</span> Built with <span class="heart">&#10084;&#65039;</span> in Texas <span class="star">&#9733;</span></p>
+</footer>
+
+<script>
+'use strict';
+
+var REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// ==================== PIXEL FONT ====================
+// 5x7 glyphs, one number per row (bit 4 = leftmost pixel)
+var FONT = {
+    A:[14,17,17,31,17,17,17], B:[30,17,17,30,17,17,30], C:[14,17,16,16,16,17,14], D:[28,18,17,17,17,18,28],
+    E:[31,16,16,30,16,16,31], F:[31,16,16,30,16,16,16], G:[14,17,16,23,17,17,15], H:[17,17,17,31,17,17,17],
+    I:[14,4,4,4,4,4,14],      J:[7,2,2,2,2,18,12],      K:[17,18,20,24,20,18,17], L:[16,16,16,16,16,16,31],
+    M:[17,27,21,21,17,17,17], N:[17,17,25,21,19,17,17], O:[14,17,17,17,17,17,14], P:[30,17,17,30,16,16,16],
+    Q:[14,17,17,17,21,18,13], R:[30,17,17,30,20,18,17], S:[15,16,16,14,1,1,30],    T:[31,4,4,4,4,4,4],
+    U:[17,17,17,17,17,17,14], V:[17,17,17,17,17,10,4],  W:[17,17,17,21,21,21,10], X:[17,17,10,4,10,17,17],
+    Y:[17,17,17,10,4,4,4],    Z:[31,1,2,4,8,16,31],
+    0:[14,17,19,21,25,17,14], 1:[4,12,4,4,4,4,14],      2:[14,17,1,2,4,8,31],     3:[31,2,4,2,1,17,14],
+    4:[2,6,10,18,31,2,2],     5:[31,16,30,1,1,17,14],   6:[6,8,16,30,17,17,14],   7:[31,1,2,4,8,8,8],
+    8:[14,17,17,14,17,17,14], 9:[14,17,17,15,1,2,12],
+    ' ':[0,0,0,0,0,0,0], '-':[0,0,0,31,0,0,0], ':':[0,12,12,0,12,12,0], '!':[4,4,4,4,4,0,4], '.':[0,0,0,0,0,12,12]
+};
+
+// Draw text into a canvas: one colour per glyph row (a sunset gradient), with a hard drop shadow.
+// `scale` is CSS px per font pixel; it's always a whole number so the pixels stay square and crisp.
+function drawPixelText(canvas, text, rowColors, shadow, scale) {
+    var cols = text.length * 6 - 1;
+    var dpr  = Math.max(1, Math.round(window.devicePixelRatio || 1));
+    canvas.style.width  = (cols + 1) * scale + 'px';
+    canvas.style.height = 8 * scale + 'px';
+    scale *= dpr;
+    canvas.width  = (cols + 1) * scale;
+    canvas.height = 8 * scale;
+    var c = canvas.getContext('2d');
+    c.clearRect(0, 0, canvas.width, canvas.height);
+    for (var pass = 0; pass < 2; pass++) {
+        var off = pass === 0 ? 1 : 0;
+        for (var i = 0; i < text.length; i++) {
+            var g = FONT[text[i]] || FONT[' '];
+            for (var row = 0; row < 7; row++) {
+                c.fillStyle = pass === 0 ? shadow : rowColors[row % rowColors.length];
+                for (var bit = 0; bit < 5; bit++) {
+                    if (g[row] & (16 >> bit)) c.fillRect((i * 6 + bit + off) * scale, (row + off) * scale, scale, scale);
+                }
+            }
+        }
+    }
+    canvas.setAttribute('aria-label', text);
+}
+
+var SUNSET = ['#fffbe0', '#ffef7a', '#ffd23f', '#ffa23f', '#ff6fae', '#ff3fd0', '#c23cff'];
+var WHITE  = ['#ffffff'];
+
+// Big pixel headings pick the largest whole-number scale (up to maxScale) that fits `fit`'s width
+var headings = [{ el: document.getElementById('logo'), text: 'DUCK GAMES', colors: SUNSET, shadow: '#1b0038', maxScale: 13,
+                  fit: document.querySelector('main'), margin: 32 }];
+document.querySelectorAll('canvas[data-pixel]').forEach(function(cv) {
+    headings.push({ el: cv, text: cv.getAttribute('data-pixel'), colors: WHITE, shadow: 'rgba(18, 0, 46, 0.85)', maxScale: 9,
+                    fit: cv.parentNode, margin: 24 });
+});
+
+function drawHeadings() {
+    headings.forEach(function(hd) {
+        var cols  = hd.text.length * 6;
+        var scale = Math.max(1, Math.min(hd.maxScale, Math.floor((hd.fit.clientWidth - hd.margin) / cols)));
+        drawPixelText(hd.el, hd.text, hd.colors, hd.shadow, scale);
+    });
+}
+drawHeadings();
+window.addEventListener('resize', drawHeadings);
+
+// ==================== SCORE BAR ====================
+// Best distances come from each game's own save (read-only); metres = px / 10
+function bestMetres(key) {
+    try {
+        var m = JSON.parse(localStorage.getItem(key));
+        if (m && typeof m.bestDistance === 'number' && m.bestDistance > 0) return Math.floor(m.bestDistance / 10);
+    } catch (e) {}
+    return 0;
+}
+
+function scoreText(metres) {
+    return metres > 0 ? ('00000' + Math.min(metres, 99999)).slice(-5) + 'M' : '-----';
+}
+
+var credits = 0;
+function drawCredit() {
+    drawPixelText(document.getElementById('credit'), ('0' + credits).slice(-2), WHITE, '#3a0a55', 3);
+}
+
+drawPixelText(document.getElementById('bestRun'),  scoreText(bestMetres('duckrun_meta')), WHITE, '#08305a', 3);
+drawPixelText(document.getElementById('bestKart'), scoreText(bestMetres('duckster_meta')), WHITE, '#5a2008', 3);
+drawCredit();
+
+// ==================== CABINETS ====================
+var cabinets = Array.prototype.slice.call(document.querySelectorAll('.cabinet'));
+var selected = 0, starting = false, audio = null;
+
+function select(i) {
+    selected = (i + cabinets.length) % cabinets.length;
+    cabinets.forEach(function(c, j) { c.classList.toggle('selected', j === selected); });
+}
+
+function tone(freq, start, dur, vol) {
+    var o = audio.createOscillator(), g = audio.createGain();
+    o.type = 'square';
+    o.frequency.setValueAtTime(freq, audio.currentTime + start);
+    g.gain.setValueAtTime(vol, audio.currentTime + start);
+    g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + start + dur);
+    o.connect(g); g.connect(audio.destination);
+    o.start(audio.currentTime + start);
+    o.stop(audio.currentTime + start + dur);
+}
+
+// Classic coin-drop chime
+function coinSound() {
+    try {
+        audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+        tone(988, 0, 0.08, 0.08);
+        tone(1319, 0.08, 0.35, 0.08);
+    } catch (e) {}
+}
+
+// Insert coin, flash PLAYER 1 START, then load the game
+function start(i) {
+    if (starting) return;
+    starting = true;
+    select(i);
+    coinSound();
+    credits = Math.min(99, credits + 1);
+    drawCredit();
+    cabinets[i].classList.add('starting');
+    var href = cabinets[i].getAttribute('data-href');
+    setTimeout(function() { location.href = href; }, REDUCED_MOTION ? 150 : 700);
+}
+
+cabinets.forEach(function(cab, i) {
+    cab.addEventListener('mouseenter', function() { select(i); });
+    cab.querySelector('.cab-link').addEventListener('focus', function() { select(i); });
+    cab.querySelector('.cab-link').addEventListener('click', function(e) {
+        // Let modified clicks (new tab, etc.) behave like a normal link
+        if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        start(i);
+    });
+});
+
+document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp')         { select(selected - 1); e.preventDefault(); }
+    else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { select(selected + 1); e.preventDefault(); }
+    else if (e.key === 'Enter' || e.key === ' ')              { start(selected); e.preventDefault(); }
+    else if (e.key === '1' || e.key === '2')                  { start(+e.key - 1); }
+});
+
+// Coming back with the browser's back button restores this page as it was left
+window.addEventListener('pageshow', function() {
+    starting = false;
+    cabinets.forEach(function(c) { c.classList.remove('starting'); });
+});
+
+select(0);
+
+// ==================== SYNTHWAVE SKY ====================
+var sky = document.getElementById('sky');
+var sc  = sky.getContext('2d');
+var stars = [];
+for (var s = 0; s < 140; s++) stars.push({ x: Math.random(), y: Math.random() * 0.55, r: Math.random() < 0.15 ? 2 : 1, p: Math.random() * 6.28 });
+
+// Fixed mountain silhouettes (fractions of width / of the gap above the horizon)
+var RIDGE_BACK  = [0, 0.3, 0.08, 0.55, 0.17, 0.25, 0.27, 0.7, 0.36, 0.35, 0.44, 0.5, 0.52, 0.2, 0.6, 0.6, 0.7, 0.3, 0.8, 0.65, 0.9, 0.25, 1, 0.45];
+var RIDGE_FRONT = [0, 0.15, 0.1, 0.32, 0.2, 0.1, 0.32, 0.4, 0.42, 0.12, 0.62, 0.08, 0.72, 0.38, 0.84, 0.14, 0.94, 0.3, 1, 0.1];
+
+// The glowing sun is pre-rendered once per resize; a big shadowBlur every frame is expensive
+var sunCanvas = document.createElement('canvas');
+
+function resizeSky() {
+    var dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    sky.width  = Math.round(window.innerWidth * dpr);
+    sky.height = Math.round(window.innerHeight * dpr);
+    var r = Math.min(sky.width, sky.height) * 0.2, pad = 70;
+    sunCanvas.width = sunCanvas.height = Math.ceil((r + pad) * 2);
+    var c = sunCanvas.getContext('2d'), mid = sunCanvas.width / 2;
+    var sg = c.createLinearGradient(0, mid - r, 0, mid + r);
+    sg.addColorStop(0, '#ffe14d'); sg.addColorStop(0.5, '#ff7a3d'); sg.addColorStop(1, '#ff2bd6');
+    c.shadowColor = '#ff2bd6'; c.shadowBlur = 60;
+    c.fillStyle = sg;
+    c.beginPath(); c.arc(mid, mid, r, 0, Math.PI * 2); c.fill();
+}
+
+function ridge(points, w, horizon, height, fill, line) {
+    sc.beginPath();
+    sc.moveTo(0, horizon);
+    for (var i = 0; i < points.length; i += 2) sc.lineTo(points[i] * w, horizon - points[i + 1] * height);
+    sc.lineTo(w, horizon);
+    sc.closePath();
+    sc.fillStyle = fill;
+    sc.fill();
+    sc.strokeStyle = line;
+    sc.lineWidth = 2;
+    sc.stroke();
+}
+
+function drawSky(t) {
+    var w = sky.width, h = sky.height, horizon = h * 0.6;
+
+    var g = sc.createLinearGradient(0, 0, 0, horizon);
+    g.addColorStop(0, '#07001a'); g.addColorStop(0.55, '#2a0650'); g.addColorStop(1, '#8a1670');
+    sc.fillStyle = g;
+    sc.fillRect(0, 0, w, horizon);
+
+    for (var i = 0; i < stars.length; i++) {
+        var st = stars[i];
+        sc.globalAlpha = 0.35 + 0.65 * Math.abs(Math.sin(st.p + t * 0.0012));
+        sc.fillStyle = '#ffffff';
+        sc.fillRect(st.x * w, st.y * horizon, st.r, st.r);
+    }
+    sc.globalAlpha = 1;
+
+    // Striped sunset sun; the stripes drift downward
+    var r = Math.min(w, h) * 0.2, cx = w / 2, cy = horizon - r * 0.35;
+    sc.save();
+    sc.beginPath(); sc.rect(0, 0, w, horizon); sc.clip();
+    sc.drawImage(sunCanvas, cx - sunCanvas.width / 2, cy - sunCanvas.height / 2);
+    sc.fillStyle = g;
+    var drift = (t * 0.01) % 18;
+    for (var k = 0; k < 9; k++) {
+        var y = cy + k * 18 * (h / 900) + drift * (h / 900);
+        var bh = (2 + k * 1.6) * (h / 900);
+        if (y > cy - r * 0.1) sc.fillRect(cx - r, y, r * 2, bh);
+    }
+    sc.restore();
+
+    ridge(RIDGE_BACK, w, horizon, h * 0.16, '#1a0438', 'rgba(45, 226, 255, 0.55)');
+    ridge(RIDGE_FRONT, w, horizon, h * 0.12, '#0e0124', 'rgba(255, 43, 214, 0.8)');
+
+    // Floor and perspective grid
+    var fg = sc.createLinearGradient(0, horizon, 0, h);
+    fg.addColorStop(0, '#1a0033'); fg.addColorStop(1, '#07001a');
+    sc.fillStyle = fg;
+    sc.fillRect(0, horizon, w, h - horizon);
+
+    sc.strokeStyle = 'rgba(255, 43, 214, 0.75)';
+    sc.lineWidth = Math.max(1, h / 700);
+    var phase = (t * 0.00045) % 1;
+    for (var n = 0; n < 16; n++) {
+        var f = (n + phase) / 16;
+        var gy = horizon + (h - horizon) * f * f;
+        sc.globalAlpha = Math.min(1, f * 3);
+        sc.beginPath(); sc.moveTo(0, gy); sc.lineTo(w, gy); sc.stroke();
+    }
+    sc.globalAlpha = 1;
+    for (var v = -14; v <= 14; v++) {
+        sc.beginPath();
+        sc.moveTo(cx + v * w * 0.012, horizon);
+        sc.lineTo(cx + v * w * 0.11, h);
+        sc.stroke();
+    }
+
+    // Horizon glow
+    sc.fillStyle = 'rgba(255, 120, 220, 0.9)';
+    sc.fillRect(0, horizon - 1, w, 2);
+}
+
+function animateSky(t) {
+    drawSky(t);
+    if (!REDUCED_MOTION) requestAnimationFrame(animateSky);
+}
+
+window.addEventListener('resize', function() { resizeSky(); if (REDUCED_MOTION) drawSky(0); });
+resizeSky();
+requestAnimationFrame(animateSky);
+</script>
 </body>
 </html>
