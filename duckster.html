@@ -3254,7 +3254,27 @@ document.getElementById('pauseBtn').addEventListener('touchstart', function(e) {
 }, { passive: false });
 
 // ==================== GAME LOOP ====================
-function loop() {
+const STEP_MS   = 1000 / 60;  // the game is tuned for one step per 60 Hz frame
+const MAX_STEPS = 4;          // catch-up limit after a stall (e.g. a background tab)
+var lastFrameTime = 0, stepAccum = 0;
+
+// Fixed timestep: run step() at 60 Hz whatever the display refresh rate, so 120/144 Hz screens don't speed the game up
+function loop(now) {
+    requestAnimationFrame(loop);
+    stepAccum += lastFrameTime ? now - lastFrameTime : STEP_MS;
+    lastFrameTime = now;
+    var steps = 0;
+    // 1 ms of slack absorbs vsync jitter on 60 Hz screens so frames aren't skipped and then doubled
+    while (stepAccum >= STEP_MS - 1 && steps < MAX_STEPS) {
+        step();
+        stepAccum -= STEP_MS;
+        steps++;
+    }
+    if (stepAccum >= STEP_MS) stepAccum = 0;   // too far behind: drop the backlog instead of fast-forwarding
+}
+
+// One frame of update + draw
+function step() {
     frameCount++;
     uiButtons = [];
     ctx.save();
@@ -3341,7 +3361,6 @@ function loop() {
     }
 
     ctx.restore();
-    requestAnimationFrame(loop);
 }
 
 // ==================== FIT TO SCREEN ====================
@@ -4074,7 +4093,7 @@ function drawCollectibles() {
 
 // ==================== BOOTSTRAP ====================
 fitToScreen();
-loop();
+requestAnimationFrame(loop);
 </script>
 <style>
     #backLink {
