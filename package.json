@@ -1,0 +1,14 @@
+{
+  "name": "duck-game-engine",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite src/",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vite": "^5.2.0"
+  }
+}
