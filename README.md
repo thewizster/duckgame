@@ -44,7 +44,7 @@ The duck runs right on its own through five biomes, each ending in a boss. Beat 
 | **↓ / S** (hold) / DIVE button | Dive underwater |
 | **SHIFT** / right tap | Burst: a powerful upward launch that uses a charge |
 | **1 / 2 / 3** | Pick a duck or an upgrade |
-| **ESC / P** | Pause (also pauses when you switch tabs) |
+| **ESC / P** | Pause (also pauses when you switch tabs or click outside the game) |
 | **Q** / **R** / **A** | Quit (paused), restart (after death), achievements (title or death screen) |
 
 ## How it plays
@@ -131,7 +131,7 @@ The duck swaps water for wheels. Race seven rival ducks across five biomes to th
 | **1 / 2 / 3** | Pick a kart or an upgrade |
 | **← / →** | Choose the Grand Prix level (kart pick screen) |
 | **R / H** | Reroll upgrades / repair (pit stop, costs corn) |
-| **ESC / P** | Pause (also pauses when you switch tabs) |
+| **ESC / P** | Pause (also pauses when you switch tabs or click outside the game) |
 | **Q** / **G** / **A** | Quit (paused or end screen), garage (title), achievements (title or end screen) |
 
 ## How it plays

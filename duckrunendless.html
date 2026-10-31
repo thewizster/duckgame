@@ -2970,6 +2970,14 @@ document.addEventListener('visibilitychange', function() {
     if (document.hidden) pauseGame();
 });
 
+// Focus can leave the game while a key is held (e.g. clicking outside an embedded frame on itch.io),
+// and that key's keyup then never reaches us. Drop held input even if there's nothing to pause.
+window.addEventListener('blur', function() {
+    keyHeld = {};
+    touchDive = false;
+    pauseGame();
+});
+
 // ==================== INPUT ====================
 var keyHeld = {};
 
